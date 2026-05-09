@@ -1,0 +1,122 @@
+# Codex sandbox config for Python projects
+# Author: Mr Closer
+
+[sandbox]
+name = "python-sandbox"
+description = "Python 3.12 with uv, pytest, ruff, mypy, and the data tools a typical service needs"
+
+[sandbox.image]
+base = "python:3.12-bookworm"
+platform = "linux/amd64"
+
+[sandbox.tools]
+python   = "3.12"
+uv       = "latest"
+pip      = "latest"
+git      = "latest"
+curl     = "latest"
+ripgrep  = "latest"
+jq       = "latest"
+
+# Optional system packages for native deps
+[sandbox.apt_packages]
+packages = [
+  "build-essential",
+  "libpq-dev",
+  "libssl-dev",
+  "libffi-dev",
+]
+
+# Tools installed via uv tool install
+[sandbox.uv_tools]
+"ruff"        = "latest"
+"mypy"        = "latest"
+"pytest"      = "latest"
+"black"       = "latest"
+"pre-commit"  = "latest"
+
+[sandbox.env]
+required = [
+  "GITHUB_TOKEN",
+]
+optional = [
+  "DATABASE_URL",
+  "REDIS_URL",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+]
+
+[sandbox.secrets]
+scrub_logs = true
+patterns = [
+  "ghp_[A-Za-z0-9]{36}",
+  "sk-[A-Za-z0-9]{32,}",
+  "AKIA[A-Z0-9]{16}",
+  "Bearer [A-Za-z0-9._-]{20,}",
+]
+
+[sandbox.filesystem]
+working_dir = "/workspace"
+read_only_paths = []
+ephemeral = true
+clean_between_tasks = true
+
+[sandbox.network]
+egress_allowlist = [
+  "pypi.org",
+  "files.pythonhosted.org",
+  "github.com",
+  "api.github.com",
+  "objects.githubusercontent.com",
+  "raw.githubusercontent.com",
+]
+egress_default = "deny"
+
+[sandbox.resources]
+cpu = "2"
+memory = "4Gi"
+disk = "10Gi"
+timeout_minutes = 30
+
+[sandbox.allow_commands]
+shell = [
+  "uv",
+  "python",
+  "python3",
+  "pip",
+  "pytest",
+  "ruff",
+  "mypy",
+  "black",
+  "git",
+  "curl",
+  "rg",
+  "jq",
+  "find",
+  "grep",
+  "ls",
+  "cat",
+  "head",
+  "tail",
+  "make",
+]
+
+[sandbox.deny_commands]
+shell = [
+  "rm -rf",
+  "git push --force",
+  "twine upload",
+  "pip install -e",
+  "sudo",
+]
+
+[sandbox.hooks]
+pre_task   = "scripts/codex-pre.sh"
+post_task  = "scripts/codex-post.sh"
+on_failure = "scripts/codex-fail.sh"
+
+[sandbox.metadata]
+maintainer = "Mr Closer <jeanpascal@glaxtons.co.uk>"
+version    = "1.0.0"

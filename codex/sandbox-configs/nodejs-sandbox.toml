@@ -1,0 +1,125 @@
+# Codex sandbox config for Node.js projects
+# Author: Mr Closer
+#
+# Drop this at the path your Codex install expects (commonly .codex/sandbox.toml).
+# Adjust versions to match your project before kicking off a task.
+
+[sandbox]
+name = "nodejs-sandbox"
+description = "Node 20 with pnpm, Playwright, and the build tools a typical web project needs"
+
+# The base image. Pin to a specific tag in production usage.
+[sandbox.image]
+base = "node:20-bookworm"
+platform = "linux/amd64"
+
+# Tools and runtimes provisioned in the sandbox
+[sandbox.tools]
+node      = "20"
+pnpm      = "9"
+yarn      = "1"
+git       = "latest"
+curl      = "latest"
+ripgrep   = "latest"
+jq        = "latest"
+
+# Optional global npm packages
+[sandbox.npm_globals]
+"typescript" = "5"
+"vercel"     = "latest"
+
+# Browser automation, only installed when explicitly enabled
+[sandbox.playwright]
+enabled = true
+browsers = ["chromium"]
+
+# Environment variables. Codex injects these from the secure store.
+[sandbox.env]
+required = [
+  "GITHUB_TOKEN",
+]
+optional = [
+  "VERCEL_TOKEN",
+  "DATABASE_URL",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+]
+
+# Secrets are scrubbed from logs by default
+[sandbox.secrets]
+scrub_logs = true
+patterns = [
+  "ghp_[A-Za-z0-9]{36}",
+  "sk-[A-Za-z0-9]{32,}",
+  "Bearer [A-Za-z0-9._-]{20,}",
+]
+
+# Filesystem access
+[sandbox.filesystem]
+working_dir = "/workspace"
+read_only_paths = []
+ephemeral = true
+clean_between_tasks = true
+
+# Network policy
+[sandbox.network]
+egress_allowlist = [
+  "registry.npmjs.org",
+  "registry.yarnpkg.com",
+  "github.com",
+  "api.github.com",
+  "objects.githubusercontent.com",
+  "raw.githubusercontent.com",
+  "playwright.azureedge.net",
+  "vercel.com",
+  "api.vercel.com",
+]
+egress_default = "deny"
+
+# Resource limits
+[sandbox.resources]
+cpu = "2"
+memory = "4Gi"
+disk = "10Gi"
+timeout_minutes = 30
+
+# Default commands the agent can run unattended
+[sandbox.allow_commands]
+shell = [
+  "pnpm",
+  "npm",
+  "yarn",
+  "node",
+  "tsc",
+  "git",
+  "curl",
+  "rg",
+  "jq",
+  "find",
+  "grep",
+  "ls",
+  "cat",
+  "head",
+  "tail",
+]
+
+# Commands the agent must NOT run without explicit confirmation
+[sandbox.deny_commands]
+shell = [
+  "rm -rf",
+  "git push --force",
+  "vercel deploy --prod",
+  "npm publish",
+  "sudo",
+]
+
+# Hooks
+[sandbox.hooks]
+pre_task   = "scripts/codex-pre.sh"
+post_task  = "scripts/codex-post.sh"
+on_failure = "scripts/codex-fail.sh"
+
+# Metadata
+[sandbox.metadata]
+maintainer = "Mr Closer <jeanpascal@glaxtons.co.uk>"
+version    = "1.0.0"

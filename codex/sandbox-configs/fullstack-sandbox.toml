@@ -1,0 +1,163 @@
+# Codex sandbox config for fullstack apps
+# Includes Node, Python, Postgres, Redis. The kitchen sink for a typical SaaS.
+# Author: Mr Closer
+
+[sandbox]
+name = "fullstack-sandbox"
+description = "Node 20 + Python 3.12 + Postgres 16 + Redis 7. Suitable for fullstack tasks that span web, API, worker, and data layers."
+
+[sandbox.image]
+base = "ubuntu:22.04"
+platform = "linux/amd64"
+
+[sandbox.tools]
+node     = "20"
+pnpm     = "9"
+python   = "3.12"
+uv       = "latest"
+git      = "latest"
+curl     = "latest"
+ripgrep  = "latest"
+jq       = "latest"
+make     = "latest"
+
+[sandbox.apt_packages]
+packages = [
+  "build-essential",
+  "ca-certificates",
+  "libpq-dev",
+  "libssl-dev",
+  "libffi-dev",
+  "postgresql-client",
+  "redis-tools",
+]
+
+[sandbox.npm_globals]
+"typescript" = "5"
+"vercel"     = "latest"
+
+[sandbox.uv_tools]
+"ruff"   = "latest"
+"mypy"   = "latest"
+"pytest" = "latest"
+
+# Auxiliary services that come up alongside the sandbox
+[[sandbox.services]]
+name  = "postgres"
+image = "postgres:16-alpine"
+port  = 5432
+env   = { POSTGRES_USER = "codex", POSTGRES_PASSWORD = "codex", POSTGRES_DB = "codex" }
+healthcheck = "pg_isready -U codex"
+
+[[sandbox.services]]
+name  = "redis"
+image = "redis:7-alpine"
+port  = 6379
+healthcheck = "redis-cli ping"
+
+[sandbox.env]
+required = [
+  "GITHUB_TOKEN",
+]
+optional = [
+  "VERCEL_TOKEN",
+  "STRIPE_SECRET_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "RESEND_API_KEY",
+  "CLERK_SECRET_KEY",
+]
+
+# Service URLs Codex injects automatically
+[sandbox.env.computed]
+DATABASE_URL = "postgres://codex:codex@localhost:5432/codex"
+REDIS_URL    = "redis://localhost:6379"
+
+[sandbox.secrets]
+scrub_logs = true
+patterns = [
+  "ghp_[A-Za-z0-9]{36}",
+  "sk-[A-Za-z0-9]{32,}",
+  "rk_[A-Za-z0-9]{32,}",
+  "AKIA[A-Z0-9]{16}",
+  "Bearer [A-Za-z0-9._-]{20,}",
+]
+
+[sandbox.filesystem]
+working_dir = "/workspace"
+read_only_paths = []
+ephemeral = true
+clean_between_tasks = true
+
+[sandbox.network]
+egress_allowlist = [
+  "registry.npmjs.org",
+  "registry.yarnpkg.com",
+  "pypi.org",
+  "files.pythonhosted.org",
+  "github.com",
+  "api.github.com",
+  "objects.githubusercontent.com",
+  "raw.githubusercontent.com",
+  "vercel.com",
+  "api.vercel.com",
+  "api.stripe.com",
+  "api.openai.com",
+  "api.anthropic.com",
+]
+egress_default = "deny"
+
+[sandbox.resources]
+cpu = "4"
+memory = "8Gi"
+disk = "20Gi"
+timeout_minutes = 60
+
+[sandbox.allow_commands]
+shell = [
+  "pnpm",
+  "npm",
+  "yarn",
+  "node",
+  "tsc",
+  "uv",
+  "python",
+  "python3",
+  "pytest",
+  "ruff",
+  "mypy",
+  "psql",
+  "redis-cli",
+  "git",
+  "curl",
+  "rg",
+  "jq",
+  "make",
+  "find",
+  "grep",
+  "ls",
+  "cat",
+  "head",
+  "tail",
+]
+
+[sandbox.deny_commands]
+shell = [
+  "rm -rf",
+  "git push --force",
+  "vercel deploy --prod",
+  "npm publish",
+  "twine upload",
+  "DROP DATABASE",
+  "TRUNCATE",
+  "sudo",
+]
+
+[sandbox.hooks]
+pre_task   = "scripts/codex-pre.sh"
+post_task  = "scripts/codex-post.sh"
+on_failure = "scripts/codex-fail.sh"
+
+[sandbox.metadata]
+maintainer = "Mr Closer <jeanpascal@glaxtons.co.uk>"
+version    = "1.0.0"
