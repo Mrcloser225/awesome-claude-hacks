@@ -42,6 +42,8 @@ If you already have Claude Code humming, install [`hooks/pre-commit-guard.sh`](.
 
 If you are about to start a new project, copy the right [template](./claude-md-templates/) into your repo before your first Claude session.
 
+If you want to trigger Claude Code from anywhere — a phone, a cron job, a Slack webhook — run [`scripts/claude-remote.sh`](./scripts/claude-remote.sh). It starts a local HTTP server that accepts prompt requests and streams results back as JSON.
+
 ---
 
 Built by Mr Closer

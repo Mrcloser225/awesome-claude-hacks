@@ -87,6 +87,7 @@ Highlights:
 - [`pre-commit-guard.sh`](./claude-code/hooks/pre-commit-guard.sh) catches lint, typecheck, and test failures before they hit your branch
 - [`rapid-prototype.md`](./claude-code/workflows/rapid-prototype.md) is a workflow that takes you from blank repo to deployed app in under 60 minutes
 - [`project-scanner.sh`](./claude-code/scripts/project-scanner.sh) reads your project and writes a custom CLAUDE.md from what it finds
+- [`claude-remote.sh`](./claude-code/scripts/claude-remote.sh) starts an HTTP server so you can send prompts to Claude Code from a phone, cron job, or Slack webhook
 
 ### cowork/
 
