@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Closer</title>
+<script src="https://res.cdn.office.net/teams-js/2.31.1/js/MicrosoftTeams.min.js" crossorigin="anonymous"></script>
+<style>
+  :root { --bg:#0f141c; --panel:rgba(255,255,255,.06); --fg:#eef1f5; --muted:#98a2b3; --accent:#c9a63c; --good:#3ecf8e; --warn:#f2b134; --bad:#ff5d5d; font-family:-apple-system,"Segoe UI",system-ui,sans-serif; font-size:14px; color:var(--fg); }
+  body { margin:0; background:var(--bg); padding:10px; }
+  h1 { font-size:14px; margin:0 0 8px; color:var(--accent); display:flex; gap:8px; align-items:center; }
+  .status { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-left:auto; }
+  .status.live { color:var(--good); } .status.error { color:var(--bad); }
+  .setup { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  input, button, textarea { font:inherit; border-radius:8px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.07); color:var(--fg); padding:8px 10px; }
+  button { cursor:pointer; font-weight:600; } button.go { background:var(--accent); color:#111; border:0; }
+  .row { display:flex; gap:6px; } .row > * { flex:1; }
+  .card { background:var(--panel); border-left:4px solid var(--accent); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+  .card.objection { border-left-color:var(--bad); } .card.question, .card.answer { border-left-color:#5aa9ff; } .card.warning { border-left-color:var(--warn); }
+  .kicker { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); display:flex; gap:8px; }
+  .kicker .stage { margin-left:auto; }
+  .headline { font-weight:700; margin-top:6px; }
+  .script { font-size:17px; line-height:1.4; margin-top:6px; white-space:pre-wrap; }
+  .why { font-size:12px; color:var(--muted); margin-top:8px; }
+  .insight { background:rgba(0,0,0,.25); border-radius:10px; padding:10px 12px; font-size:12px; margin-bottom:8px; }
+  .insight h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:6px 0 4px; }
+  .insight ul { margin:0; padding-left:16px; } .insight li { margin:2px 0; }
+  .ask { display:flex; gap:6px; margin-bottom:8px; } .ask input { flex:1; }
+  .quick { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; } .quick button { font-size:11px; padding:4px 8px; font-weight:500; }
+  .ticker { font-size:12px; line-height:1.35; max-height:160px; overflow-y:auto; background:rgba(0,0,0,.25); border-radius:8px; padding:6px 8px; }
+  .who { font-weight:700; color:var(--muted); margin-right:4px; } .rep .who { color:var(--accent); } .prospect .who { color:#5aa9ff; }
+  .partial { opacity:.6; } .muted { color:var(--muted); } .err { color:var(--bad); font-size:12px; }
+  .bot { font-size:11px; color:var(--muted); margin-bottom:6px; }
+</style>
+</head>
+<body>
+<h1>The Closer <span id="status" class="status">idle</span></h1>
+<div id="bot" class="bot"></div>
+
+<section id="setup" class="setup">
+  <div class="row"><input id="apiUrl" placeholder="API URL, e.g. https://api.yourdomain.com" /><input id="apiKey" placeholder="API key" /></div>
+  <div class="row"><input id="repName" placeholder="Your name (as shown in Teams)" /><input id="company" placeholder="Your company" /></div>
+  <div class="row"><input id="prospectName" placeholder="Prospect name" /><input id="prospectCompany" placeholder="Prospect company" /></div>
+  <textarea id="briefing" rows="2" placeholder="Briefing: goal for this call, history, landmines"></textarea>
+  <div class="row"><input id="meetingUrl" placeholder="Meeting join link (auto-filled inside Teams)" /></div>
+  <div class="row"><button id="send" class="go">Send the bot in</button><button id="attachBtn">Attach to running call</button></div>
+  <div id="err" class="err"></div>
+</section>
+
+<div id="card" class="card"><div class="kicker">Listening</div><div class="script muted">Your next line appears here as soon as the prospect finishes a thought.</div></div>
+<div class="quick" id="quick"></div>
+<div class="ask"><input id="q" placeholder="Ask the coach…" /><button id="askBtn">Ask</button></div>
+<div id="insight" class="insight" hidden></div>
+<div id="ticker" class="ticker"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = { ws: null, card: null, transcript: new Map(), callId: null };
+  const saved = JSON.parse(localStorage.getItem("closer.panel") || "{}");
+  for (const k of ["apiUrl", "apiKey", "repName", "company", "prospectName", "prospectCompany", "briefing"]) if (saved[k]) $(k).value = saved[k];
+  const save = () => { const o = {}; for (const k of ["apiUrl", "apiKey", "repName", "company", "prospectName", "prospectCompany", "briefing"]) o[k] = $(k).value; localStorage.setItem("closer.panel", JSON.stringify(o)); };
+
+  // Inside Teams: pull the meeting join link and the user's name from the context.
+  if (window.microsoftTeams) {
+    microsoftTeams.app.initialize().then(() => microsoftTeams.app.getContext()).then((ctx) => {
+      if (ctx.meeting && ctx.meeting.id) { /* meeting.id is not a join link; join URL comes from the chat/meeting details */ }
+      if (ctx.user && ctx.user.displayName && !$("repName").value) $("repName").value = ctx.user.displayName;
+      if (ctx.page && ctx.page.subPageId && !$("meetingUrl").value) $("meetingUrl").value = ctx.page.subPageId;
+      microsoftTeams.app.notifySuccess();
+    }).catch(() => {});
+  }
+
+  const setStatus = (s) => { $("status").textContent = s; $("status").className = "status " + s; };
+  const wsUrl = () => $("apiUrl").value.replace(/^http/, "ws").replace(/\/$/, "") + "/v1/live?token=" + encodeURIComponent($("apiKey").value);
+
+  function renderCard() {
+    const c = state.card; const el = $("card");
+    if (!c) return;
+    el.className = "card " + (c.type || "say_this");
+    const label = { say_this: "Say this", objection: "Objection", question: "They asked", answer: "Answer", warning: "Heads up", stage_change: "Stage" }[c.type] || "Say this";
+    el.innerHTML = `<div class="kicker"><span>${label}</span>${c.stage ? `<span class="stage">${c.stage.replace("_", " ")}</span>` : ""}${c.streaming ? `<span>thinking…</span>` : ""}</div>` +
+      (c.headline ? `<div class="headline">${esc(c.headline)}</div>` : "") +
+      `<div class="script">${esc(c.script || (c.streaming ? "…" : ""))}</div>` +
+      (c.rationale ? `<div class="why">${esc(c.rationale)}</div>` : "");
+  }
+  function renderInsight(i) {
+    const el = $("insight"); el.hidden = false;
+    const li = (xs) => xs.map((x) => `<li>${esc(x)}</li>`).join("");
+    el.innerHTML = `<h2>Stage: ${esc(i.stage)}</h2>` +
+      `<h2>Ask next</h2><ul>${li(i.nextQuestions.map((q) => q.question))}</ul>` +
+      (i.openProspectQuestions.length ? `<h2>You still owe them</h2><ul>${li(i.openProspectQuestions)}</ul>` : "") +
+      `<h2>What we know</h2><ul>${li(i.facts.map((f) => `${f.key}: ${f.value}`))}</ul>` +
+      (i.risks.length ? `<h2>Risks</h2><ul>${li(i.risks)}</ul>` : "");
+  }
+  function renderTranscript() {
+    const el = $("ticker");
+    el.innerHTML = [...state.transcript.values()].slice(-14).map((s) => `<div class="${s.speaker} ${s.isFinal ? "" : "partial"}"><span class="who">${s.speaker === "rep" ? "You" : esc(s.participant || "Them")}</span>${esc(s.text)}</div>`).join("");
+    el.scrollTop = el.scrollHeight;
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function onMessage(m) {
+    switch (m.type) {
+      case "session.snapshot":
+        state.transcript = new Map(m.transcript.map((s) => [s.id, s]));
+        if (m.events.length) { state.card = { ...m.events[m.events.length - 1], streaming: false }; renderCard(); }
+        if (m.insight) renderInsight(m.insight);
+        if (m.bot) $("bot").textContent = `bot ${m.bot.botId}: ${m.bot.status}`;
+        renderTranscript(); setStatus("live"); break;
+      case "session.ready": setStatus("live"); break;
+      case "bot.status": $("bot").textContent = `bot ${m.botId}: ${m.status}${m.detail ? " (" + m.detail + ")" : ""}`; if (m.status === "ended" || m.status === "failed") setStatus("idle"); break;
+      case "transcript.partial": case "transcript.final": state.transcript.set(m.segment.id, m.segment); renderTranscript(); break;
+      case "coach.start": state.card = { ...m.event, streaming: true, headline: "", script: "", rationale: "" }; renderCard(); break;
+      case "coach.delta": if (state.card && state.card.id === m.id) { state.card[m.field] += m.text; renderCard(); } break;
+      case "coach.done": state.card = { ...m.event, streaming: false }; renderCard(); break;
+      case "insight": renderInsight(m.insight); break;
+      case "error": $("err").textContent = m.code + ": " + m.message; if (m.code === "unauthorised") setStatus("error"); break;
+    }
+  }
+
+  function connect(thenSend) {
+    if (state.ws) state.ws.close();
+    setStatus("connecting");
+    const ws = new WebSocket(wsUrl());
+    ws.onopen = () => ws.send(JSON.stringify(thenSend));
+    ws.onmessage = (e) => onMessage(JSON.parse(e.data));
+    ws.onerror = () => { setStatus("error"); $("err").textContent = "Cannot reach the API"; };
+    ws.onclose = () => { if ($("status").textContent !== "error") setStatus("idle"); };
+    state.ws = ws;
+  }
+
+  const context = () => ({
+    callId: state.callId,
+    rep: { name: $("repName").value || "Rep", company: $("company").value || "Your company" },
+    prospect: { name: $("prospectName").value || undefined, company: $("prospectCompany").value || undefined },
+    briefing: $("briefing").value || undefined,
+  });
+
+  $("send").onclick = async () => {
+    save(); $("err").textContent = "";
+    state.callId = "call_" + Date.now().toString(36);
+    try {
+      const res = await fetch($("apiUrl").value.replace(/\/$/, "") + "/v1/bots", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + $("apiKey").value },
+        body: JSON.stringify({ meetingUrl: $("meetingUrl").value, context: context() }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const body = await res.json();
+      $("bot").textContent = `bot ${body.botId}: requested`;
+      connect({ type: "session.attach", callId: body.callId });
+    } catch (e) { $("err").textContent = String(e.message || e); setStatus("error"); }
+  };
+  $("attachBtn").onclick = async () => {
+    save(); $("err").textContent = "";
+    const res = await fetch($("apiUrl").value.replace(/\/$/, "") + "/v1/calls", { headers: { Authorization: "Bearer " + $("apiKey").value } });
+    const calls = await res.json();
+    if (!Array.isArray(calls) || calls.length === 0) { $("err").textContent = "No live calls on the API"; return; }
+    const latest = calls.sort((a, b) => b.startedAt - a.startedAt)[0];
+    connect({ type: "session.attach", callId: latest.callId });
+  };
+  const ask = (q) => { if (state.ws && state.ws.readyState === 1 && q.trim()) state.ws.send(JSON.stringify({ type: "rep.ask", question: q.trim() })); };
+  $("askBtn").onclick = () => { ask($("q").value); $("q").value = ""; };
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { ask($("q").value); $("q").value = ""; } });
+  for (const q of ["Give me a close", "Handle this objection", "What should I ask next?", "Answer what they just asked", "Summarise what they said"]) {
+    const b = document.createElement("button"); b.textContent = q; b.onclick = () => ask(q); $("quick").appendChild(b);
+  }
+})();
+</script>
+</body>
+</html>

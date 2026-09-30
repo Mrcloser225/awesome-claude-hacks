@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CoachEvent, TranscriptSegment, CallMetrics } from "./types.js";
+import type { BotStatus, CoachEvent, Insight, TranscriptSegment, CallMetrics } from "./types.js";
 
 /**
  * Wire protocol between the desktop overlay (or meeting bot bridge) and the API.
@@ -34,6 +34,8 @@ export const CallContextSchema = z.object({
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session.start"), context: CallContextSchema }),
   z.object({ type: z.literal("session.stop") }),
+  /** Attach to a call that is already running (meeting bot path). Receives a snapshot then live events. */
+  z.object({ type: z.literal("session.attach"), callId: z.string().min(1) }),
   /** The rep asks the coach something directly, e.g. "give me a close". */
   z.object({ type: z.literal("rep.ask"), question: z.string().min(1).max(500) }),
   /** Transcript supplied by an external source (meeting bot), bypassing audio. */
@@ -54,6 +56,17 @@ export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 export type ServerMessage =
   | { type: "session.ready"; callId: string }
+  | {
+      type: "session.snapshot";
+      callId: string;
+      transcript: TranscriptSegment[];
+      events: CoachEvent[];
+      insight: Insight | null;
+      metrics: CallMetrics;
+      bot: { botId: string; status: BotStatus } | null;
+    }
+  | { type: "insight"; insight: Insight }
+  | { type: "bot.status"; botId: string; status: BotStatus; detail?: string }
   | { type: "transcript.partial"; segment: TranscriptSegment }
   | { type: "transcript.final"; segment: TranscriptSegment }
   | { type: "coach.start"; event: Pick<CoachEvent, "id" | "type" | "priority" | "triggerSegmentId" | "createdAt"> }

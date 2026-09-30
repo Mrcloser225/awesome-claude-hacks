@@ -1,21 +1,26 @@
 import type { FastifyInstance } from "fastify";
-import { parseClientMessage, type Playbook, type ServerMessage, type CoachModel } from "@closer/core";
+import { parseClientMessage, type CallContext, type ServerMessage } from "@closer/core";
 import type { AuthResolver } from "../auth.js";
 import { extractToken } from "../auth.js";
-import { LiveSession } from "../session/live-session.js";
-import type { SttFactory } from "../stt/types.js";
+import type { SessionHub } from "../session/hub.js";
+import type { LiveSession } from "../session/live-session.js";
 
 export interface LiveDeps {
   auth: AuthResolver;
-  makeStt: SttFactory;
-  model: CoachModel;
-  resolvePlaybook: (orgId: string, playbookId?: string) => Promise<Playbook>;
+  hub: SessionHub;
+  /** Builds a session for a desktop-driven call. The hub supplies the broadcaster. */
+  createSession: (ctx: CallContext, send: (m: ServerMessage) => void) => Promise<LiveSession>;
   onCallEnded?: (session: LiveSession) => Promise<void> | void;
 }
 
 /**
  * WS /v1/live
  * Text frames: ClientMessage JSON. Binary frames: stereo PCM16 audio.
+ *
+ * Two modes on the same socket:
+ *   session.start  -> this socket owns a new call and streams audio into it
+ *   session.attach -> this socket watches a call that already exists (bot path);
+ *                     it can still ask the coach questions
  */
 export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
   app.get("/v1/live", { websocket: true }, async (socket, req) => {
@@ -30,12 +35,20 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
       return;
     }
 
-    let session: LiveSession | undefined;
+    let owned: LiveSession | undefined;
+    let attached: { session: LiveSession; detach: () => void } | undefined;
     const log = req.log;
+    const current = () => owned ?? attached?.session;
 
-    // Messages are processed strictly in order. session.start awaits the STT
-    // connection, and audio frames that arrive meanwhile must queue behind it,
-    // not race past it and get dropped.
+    const endOwned = async () => {
+      if (!owned) return;
+      const s = owned;
+      owned = undefined;
+      await s.stop();
+      deps.hub.remove(s.ctx.callId);
+      await deps.onCallEnded?.(s);
+    };
+
     let chain: Promise<void> = Promise.resolve();
     socket.on("message", (data, isBinary) => {
       chain = chain.then(() => handle(data, isBinary)).catch((err) => log.error({ err }, "unhandled in live route"));
@@ -44,34 +57,47 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
     const handle = async (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean): Promise<void> => {
       try {
         if (isBinary) {
-          session?.audio(Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer));
+          owned?.audio(Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer));
           return;
         }
         const msg = parseClientMessage(data.toString());
         switch (msg.type) {
           case "session.start": {
-            if (session) await session.stop();
-            const playbook = await deps.resolvePlaybook(principal.orgId, msg.context.playbookId);
-            session = new LiveSession(msg.context, { stt: deps.makeStt(), model: deps.model, playbook, send, log });
+            await endOwned();
+            attached?.detach();
+            attached = undefined;
+            const session = await deps.createSession(msg.context, deps.hub.broadcaster(msg.context.callId));
+            deps.hub.register(session);
+            deps.hub.attach(msg.context.callId, send);
+            owned = session;
             await session.start();
             break;
           }
-          case "transcript.push": {
-            if (!session) return send({ type: "error", code: "no_session", message: "Send session.start first" });
-            session.ingest({ ...msg.segment, id: `ext_${msg.segment.startMs}_${msg.segment.speaker}` });
+          case "session.attach": {
+            await endOwned();
+            attached?.detach();
+            const session = deps.hub.get(msg.callId);
+            if (!session) return send({ type: "error", code: "no_such_call", message: `No live call ${msg.callId}` });
+            const detach = deps.hub.attach(msg.callId, send);
+            attached = detach ? { session, detach } : undefined;
             break;
           }
-          case "rep.ask":
-            if (!session) return send({ type: "error", code: "no_session", message: "Send session.start first" });
-            session.ask(msg.question);
+          case "transcript.push": {
+            const s = current();
+            if (!s) return send({ type: "error", code: "no_session", message: "Send session.start or session.attach first" });
+            s.ingest({ ...msg.segment, id: `ext_${msg.segment.startMs}_${msg.segment.speaker}` });
             break;
+          }
+          case "rep.ask": {
+            const s = current();
+            if (!s) return send({ type: "error", code: "no_session", message: "Send session.start or session.attach first" });
+            s.ask(msg.question);
+            break;
+          }
           case "session.stop":
-            if (session) {
-              const s = session;
-              session = undefined;
-              await s.stop();
-              await deps.onCallEnded?.(s);
-            }
+            await endOwned();
+            attached?.detach();
+            attached = undefined;
             break;
           case "ping":
             send({ type: "pong" });
@@ -85,12 +111,8 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
 
     socket.on("close", async () => {
       await chain;
-      if (session) {
-        const s = session;
-        session = undefined;
-        await s.stop();
-        await deps.onCallEnded?.(s);
-      }
+      attached?.detach();
+      await endOwned();
     });
   });
 }

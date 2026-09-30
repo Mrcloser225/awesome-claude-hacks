@@ -1,0 +1,11 @@
+{
+  "name": "@closer/teams-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Teams meeting side panel: shows the live script inside the Teams meeting window. Static, no build step.",
+  "scripts": {
+    "dev": "npx --yes serve public -l 5174",
+    "typecheck": "echo \"static app, nothing to typecheck\"",
+    "test": "echo \"no tests\""
+  }
+}

@@ -1,10 +1,15 @@
 import {
   CoachEngine,
+  DiscoveryTracker,
   TranscriptStore,
   TriggerEngine,
   type CallContext,
+  type CallMetrics,
   type CoachEvent,
   type CoachModel,
+  type Insight,
+  type InsightModel,
+  type KnowledgeDoc,
   type Playbook,
   type ServerMessage,
   type TranscriptSegment,
@@ -14,40 +19,62 @@ import type { SttProvider } from "../stt/types.js";
 export interface LiveSessionDeps {
   stt: SttProvider;
   model: CoachModel;
+  /** Optional: without it the call still gets coach cards, just no running deal picture. */
+  insightModel?: InsightModel;
   playbook: Playbook;
+  knowledge?: KnowledgeDoc[];
   send: (msg: ServerMessage) => void;
   log?: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
   tickMs?: number;
 }
 
 /**
- * One live call: audio in, transcript + coach events out.
- * Owns the store, the trigger engine and the coach engine for the call.
+ * One live call: transcript in (from audio or a meeting bot), coach events and
+ * insights out. Owns the store, trigger engine, coach engine and discovery
+ * tracker for the call. Source-agnostic: `ingest()` is the only entry point
+ * for words, whoever heard them.
  */
 export class LiveSession {
   readonly store = new TranscriptStore();
   readonly events: CoachEvent[] = [];
+  readonly startedAt = Date.now();
   private readonly triggers: TriggerEngine;
   private readonly coach: CoachEngine;
+  private readonly tracker?: DiscoveryTracker;
   private tick?: NodeJS.Timeout;
   private metricsTick?: NodeJS.Timeout;
   private started = false;
+  private stopped = false;
 
   constructor(readonly ctx: CallContext, private readonly deps: LiveSessionDeps) {
     this.triggers = new TriggerEngine(this.store);
-    this.coach = new CoachEngine(deps.model, this.store, deps.playbook, ctx, {
-      onStart: (event) => deps.send({ type: "coach.start", event }),
-      onDelta: (id, field, text) => deps.send({ type: "coach.delta", id, field, text }),
-      onDone: (event) => {
-        this.events.push(event);
-        deps.send({ type: "coach.done", event });
+    if (deps.insightModel) {
+      this.tracker = new DiscoveryTracker(deps.insightModel, this.store, deps.playbook, ctx, (insight) => deps.send({ type: "insight", insight }));
+    }
+    this.coach = new CoachEngine(
+      deps.model,
+      this.store,
+      deps.playbook,
+      ctx,
+      {
+        onStart: (event) => deps.send({ type: "coach.start", event }),
+        onDelta: (id, field, text) => deps.send({ type: "coach.delta", id, field, text }),
+        onDone: (event) => {
+          this.events.push(event);
+          deps.send({ type: "coach.done", event });
+        },
+        onCancelled: (id) => deps.send({ type: "coach.cancelled", id }),
+        onError: (id, err) => {
+          deps.log?.error({ err, id }, "coach error");
+          deps.send({ type: "error", code: "coach_failed", message: err instanceof Error ? err.message : String(err) });
+        },
       },
-      onCancelled: (id) => deps.send({ type: "coach.cancelled", id }),
-      onError: (id, err) => {
-        deps.log?.error({ err, id }, "coach error");
-        deps.send({ type: "error", code: "coach_failed", message: err instanceof Error ? err.message : String(err) });
-      },
-    });
+      { knowledge: deps.knowledge, insight: () => this.tracker?.insight ?? null },
+    );
+  }
+
+  get insight(): Insight | null {
+    return this.tracker?.insight ?? null;
   }
 
   async start(): Promise<void> {
@@ -72,11 +99,13 @@ export class LiveSession {
 
   /** Transcript from any source: Deepgram, a meeting bot, or a test. */
   ingest(seg: TranscriptSegment): void {
+    if (this.stopped) return;
     this.store.upsert(seg);
     this.deps.send({ type: seg.isFinal ? "transcript.final" : "transcript.partial", segment: seg });
     if (seg.isFinal) {
       const t = this.triggers.onFinalSegment(seg);
       if (t) this.coach.handle(t);
+      if (seg.speaker === "prospect") this.tracker?.onProspectTurn();
     }
   }
 
@@ -88,16 +117,28 @@ export class LiveSession {
     this.coach.handle(this.triggers.onRepAsk(question));
   }
 
-  private sendMetrics(): void {
+  /** Force a fresh deal picture now (e.g. the rep pressed "where are we?"). */
+  refreshInsight(): Promise<Insight | null> {
+    return this.tracker?.run() ?? Promise.resolve(null);
+  }
+
+  metrics(): CallMetrics {
     const m = this.store.metrics();
     m.objectionsRaised = this.coach.objectionsRaised;
-    this.deps.send({ type: "metrics", metrics: m });
+    return m;
+  }
+
+  private sendMetrics(): void {
+    this.deps.send({ type: "metrics", metrics: this.metrics() });
   }
 
   async stop(): Promise<void> {
+    if (this.stopped) return;
+    this.stopped = true;
     if (this.tick) clearInterval(this.tick);
     if (this.metricsTick) clearInterval(this.metricsTick);
     this.coach.abort();
+    this.tracker?.abort();
     await this.deps.stt.stop();
     this.sendMetrics();
   }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createHmac } from "node:crypto";
 import Fastify from "fastify";
 import { registerRecallRoute, verifyRecallSignature } from "../src/routes/recall.js";
+import { SessionHub } from "../src/session/hub.js";
 import type { LiveSession } from "../src/session/live-session.js";
 
 describe("recall webhook", () => {
@@ -14,9 +15,11 @@ describe("recall webhook", () => {
 
   it("maps participants to speakers and ingests", async () => {
     const ingested: unknown[] = [];
-    const fake = { ingest: (s: unknown) => ingested.push(s) } as unknown as LiveSession;
+    const fake = { ingest: (s: unknown) => ingested.push(s), ctx: { callId: "c1" } } as unknown as LiveSession;
+    const hub = new SessionHub();
+    hub.register(fake, { botId: "bot1" });
     const app = Fastify();
-    registerRecallRoute(app, { sessionForBot: (id) => (id === "bot1" ? fake : undefined) });
+    registerRecallRoute(app, { hub });
     const payload = {
       event: "transcript.data",
       data: {

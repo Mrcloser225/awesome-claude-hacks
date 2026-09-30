@@ -17,7 +17,19 @@ export class AnthropicCoachModel implements CoachModel {
   private readonly client: Anthropic;
 
   constructor(
-    private readonly opts: { apiKey?: string; model: string; effort: "low" | "medium" | "high"; maxTokens?: number },
+    private readonly opts: {
+      apiKey?: string;
+      model: string;
+      effort: "low" | "medium" | "high";
+      maxTokens?: number;
+      /**
+       * Let the coach search the web when the prospect asks something outside the
+       * playbook and knowledge base (a regulation, a competitor's pricing, a news item).
+       * Adds seconds of latency when used, so the prompt tells the model to search only
+       * when the answer is not in the material. Off by default.
+       */
+      webSearch?: boolean;
+    },
   ) {
     this.client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
   }
@@ -31,6 +43,9 @@ export class AnthropicCoachModel implements CoachModel {
       system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: req.user }],
       stream: true,
+      ...(this.opts.webSearch
+        ? { tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 2 } as Anthropic.Beta.Messages.BetaToolUnion] }
+        : {}),
     };
     // `fallbacks: "default"` is the server-side refusal fallback (beta header above).
     // The installed SDK types do not yet declare the field, so it is spread in untyped.

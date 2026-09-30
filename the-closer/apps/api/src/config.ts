@@ -6,6 +6,8 @@ export interface ApiConfig {
   coachModel: string;
   coachEffort: "low" | "medium" | "high";
   summaryModel: string;
+  insightModel: string;
+  coachWebSearch: boolean;
   databaseUrl?: string;
   recallApiKey?: string;
   recallRegion: string;
@@ -22,6 +24,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     coachModel: env.COACH_MODEL ?? "claude-opus-5-5",
     coachEffort: effort === "medium" || effort === "high" ? effort : "low",
     summaryModel: env.SUMMARY_MODEL ?? "claude-opus-5-5",
+    insightModel: env.INSIGHT_MODEL ?? env.COACH_MODEL ?? "claude-opus-5-5",
+    coachWebSearch: (env.COACH_WEB_SEARCH ?? "false").toLowerCase() === "true",
     databaseUrl: env.DATABASE_URL,
     recallApiKey: env.RECALL_API_KEY,
     recallRegion: env.RECALL_REGION ?? "us-east-1",

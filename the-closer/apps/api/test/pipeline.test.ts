@@ -40,10 +40,10 @@ const scriptedModel: CoachModel = {
 };
 
 let baseUrl = "";
-let app: Awaited<ReturnType<typeof buildApp>>;
+let app: Awaited<ReturnType<typeof buildApp>>["app"];
 
 beforeAll(async () => {
-  app = await buildApp({ auth: new DevAuth("test-key"), makeStt: () => new ScriptedStt(), model: scriptedModel });
+  ({ app } = await buildApp({ auth: new DevAuth("test-key"), makeStt: () => new ScriptedStt(), model: scriptedModel }));
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
   if (!addr || typeof addr === "string") throw new Error("no address");
@@ -80,7 +80,7 @@ describe("live pipeline", () => {
     const msgs = await done;
 
     const types = msgs.map((m) => m.type);
-    expect(types[0]).toBe("session.ready");
+    expect(types.slice(0, 2)).toEqual(["session.snapshot", "session.ready"]);
     expect(types).toContain("transcript.partial");
     expect(types).toContain("transcript.final");
     expect(types).toContain("coach.start");

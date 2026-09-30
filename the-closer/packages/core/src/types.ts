@@ -109,3 +109,45 @@ export interface Playbook {
   /** Hard rules the model must never break, e.g. "Never quote a discount above 10%". */
   guardrails: string[];
 }
+
+/** A document the coach may cite when answering the prospect: pricing, capability, FAQs, case studies. */
+export interface KnowledgeDoc {
+  id: string;
+  title: string;
+  /** Plain text. Keep the whole pack under ~150k characters so it stays one cached prefix. */
+  body: string;
+  tags?: string[];
+  updatedAt?: number;
+}
+
+export interface Fact {
+  /** BANT / MEDDIC style key, e.g. budget, timeline, authority, pain, competitor, current_solution, success_metric. */
+  key: string;
+  value: string;
+  /** Short quote from the prospect that supports the fact. */
+  evidence?: string;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface OpenQuestion {
+  question: string;
+  /** Why this matters for qualifying or closing. */
+  why: string;
+  priority: Priority;
+}
+
+/** Periodic structured read of the call: what we know, what we still need, and where we are. */
+export interface Insight {
+  id: string;
+  stage: DealStage;
+  facts: Fact[];
+  answeredQuestions: string[];
+  nextQuestions: OpenQuestion[];
+  /** Unanswered prospect questions the rep still owes an answer to. */
+  openProspectQuestions: string[];
+  risks: string[];
+  buyingSignals: string[];
+  createdAt: number;
+}
+
+export type BotStatus = "requested" | "joining" | "waiting_room" | "in_call" | "ended" | "failed";

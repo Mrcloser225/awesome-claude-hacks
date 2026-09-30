@@ -7,3 +7,4 @@ export * from "./prompt-builder.js";
 export * from "./coach-parser.js";
 export * from "./coach-engine.js";
 export * from "./default-playbook.js";
+export * from "./discovery-tracker.js";

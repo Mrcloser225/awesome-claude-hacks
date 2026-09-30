@@ -21,6 +21,9 @@ export class RecallClient {
             { type: "webhook", url: this.opts.webhookUrl, events: ["transcript.data", "transcript.partial_data"] },
           ],
         },
+        // Lifecycle events (joining, in call, ended) come through the same webhook so the
+        // rep's overlay can show the bot's status and the call is closed out automatically.
+        status_webhook_url: this.opts.webhookUrl,
       }),
     });
     if (!res.ok) throw new Error(`Recall ${res.status}: ${await res.text()}`);

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "0.1.0",
+  "id": "REPLACE-WITH-A-GUID",
+  "developer": {
+    "name": "Glaxtons Consulting",
+    "websiteUrl": "https://glaxtons.co.uk",
+    "privacyUrl": "https://glaxtons.co.uk/privacy",
+    "termsOfUseUrl": "https://glaxtons.co.uk/terms"
+  },
+  "name": { "short": "The Closer", "full": "The Closer: live sales coach" },
+  "description": {
+    "short": "Live script, answers and next questions during your sales calls.",
+    "full": "The Closer listens to the meeting through a notetaker bot and shows you, privately in this side panel, the next line to say, answers to what the prospect just asked, and the discovery questions you still need to cover."
+  },
+  "icons": { "color": "color.png", "outline": "outline.png" },
+  "accentColor": "#1C2B4A",
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://REPLACE-WITH-PANEL-HOST/index.html",
+      "canUpdateConfiguration": false,
+      "scopes": ["groupChat"],
+      "context": ["meetingSidePanel", "meetingChatTab"]
+    }
+  ],
+  "validDomains": ["REPLACE-WITH-PANEL-HOST", "REPLACE-WITH-API-HOST"],
+  "permissions": ["identity"]
+}

@@ -1,7 +1,7 @@
 import { CoachStreamParser, type CoachField } from "./coach-parser.js";
 import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder.js";
 import type { TranscriptStore } from "./transcript-store.js";
-import type { CallContext, CoachEvent, Playbook, Priority, Trigger } from "./types.js";
+import type { CallContext, CoachEvent, Insight, KnowledgeDoc, Playbook, Priority, Trigger } from "./types.js";
 
 /** Anything that can stream text for a (system, user) prompt pair. */
 export interface CoachModel {
@@ -37,9 +37,9 @@ export class CoachEngine {
     playbook: Playbook,
     ctx: CallContext,
     private readonly sink: CoachSink,
-    private readonly opts: { transcriptChars?: number } = {},
+    private readonly opts: { transcriptChars?: number; knowledge?: KnowledgeDoc[]; insight?: () => Insight | null } = {},
   ) {
-    this.system = buildSystemPrompt(playbook, ctx);
+    this.system = buildSystemPrompt(playbook, ctx, opts.knowledge ?? []);
   }
 
   get systemPrompt(): string {
@@ -72,7 +72,7 @@ export class CoachEngine {
     this.sink.onStart({ id, type: initialType, priority: trigger.priority, triggerSegmentId: trigger.segmentId, createdAt });
 
     const transcript = this.store.render({ maxChars: this.opts.transcriptChars ?? 6000, finalsOnly: true });
-    const user = buildUserPrompt(transcript, trigger, this.store.metrics());
+    const user = buildUserPrompt(transcript, trigger, this.store.metrics(), this.opts.insight?.() ?? null);
 
     void this.run(id, trigger, user, controller);
     return id;

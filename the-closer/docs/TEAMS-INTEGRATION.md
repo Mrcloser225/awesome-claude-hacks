@@ -18,6 +18,15 @@ Limits: only works while the rep has the app open on the machine they take calls
 
 Recall handles the Teams, Zoom and Meet bot infrastructure and the transcription. Cost is per hour of meeting on top of your own Claude usage. Some enterprise tenants block unknown bots by policy; those customers need option 3.
 
+Flow in this codebase:
+
+1. `POST /v1/bots` creates a `LiveSession` for the call, registers it in the `SessionHub` against the Recall bot id, then asks Recall to join the meeting with our webhook as both the real-time transcript endpoint and the status endpoint.
+2. Recall posts `bot.status_change` (joining, waiting room, in call) and `transcript.partial_data` / `transcript.data` events. Participant names come with every event; the rep is matched by the display name given at bot creation, everyone else is the prospect side.
+3. Anyone with the API key can attach to the call: the desktop overlay, the Teams meeting side panel in `apps/teams-panel`, or a dashboard on `GET /v1/calls/:id/events` (server-sent events). Late joiners get a snapshot first.
+4. `bot.done` or `bot.fatal` closes the session, runs the post-call summary and fires `onCallEnded` for CRM logging.
+
+The Teams side panel is the rep's private view inside the meeting window itself. Teams renders side panels per user, so the prospect never sees it, and no second app sits on top of the screen.
+
 ## 3. Native Teams media bot (not shipped)
 
 Microsoft Graph Communications API, application-hosted media. Requirements:

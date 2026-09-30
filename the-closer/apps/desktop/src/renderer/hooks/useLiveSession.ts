@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CallContext, CallMetrics, CoachEvent, ServerMessage, TranscriptSegment } from "@closer/core";
+import type { BotStatus, CallContext, CallMetrics, CoachEvent, Insight, ServerMessage, TranscriptSegment } from "@closer/core";
 
 export interface LiveCard extends Partial<CoachEvent> {
   id: string;
@@ -16,6 +16,8 @@ export interface LiveState {
   card: LiveCard | null;
   history: CoachEvent[];
   metrics: CallMetrics | null;
+  insight: Insight | null;
+  bot: { botId: string; status: BotStatus; detail?: string } | null;
 }
 
 function toCard(e: CoachEvent): LiveCard {
@@ -25,13 +27,21 @@ function toCard(e: CoachEvent): LiveCard {
 /** WebSocket client for /v1/live. Handles the streamed coach card protocol. */
 export function useLiveSession(cfg: { apiUrl: string; apiKey: string } | null) {
   const wsRef = useRef<WebSocket | null>(null);
-  const [state, setState] = useState<LiveState>({ status: "idle", error: null, transcript: [], card: null, history: [], metrics: null });
+  const [state, setState] = useState<LiveState>({ status: "idle", error: null, transcript: [], card: null, history: [], metrics: null, insight: null, bot: null });
 
   const handle = useCallback((msg: ServerMessage) => {
     setState((s) => {
       switch (msg.type) {
         case "session.ready":
           return { ...s, status: "live", error: null };
+        case "session.snapshot": {
+          const last = msg.events[msg.events.length - 1];
+          return { ...s, status: "live", error: null, transcript: msg.transcript.slice(-60), history: msg.events.slice(-30), card: last ? toCard(last) : s.card, insight: msg.insight, metrics: msg.metrics, bot: msg.bot };
+        }
+        case "insight":
+          return { ...s, insight: msg.insight };
+        case "bot.status":
+          return { ...s, bot: { botId: msg.botId, status: msg.status, detail: msg.detail }, status: msg.status === "ended" || msg.status === "failed" ? "idle" : s.status };
         case "transcript.partial":
         case "transcript.final": {
           const idx = s.transcript.findIndex((t) => t.id === msg.segment.id);
@@ -61,18 +71,38 @@ export function useLiveSession(cfg: { apiUrl: string; apiKey: string } | null) {
     });
   }, []);
 
-  const connect = useCallback((context: CallContext) => {
+  const open = useCallback((first: object) => {
     if (!cfg) return;
     wsRef.current?.close();
-    setState((s) => ({ ...s, status: "connecting", error: null, transcript: [], card: null, history: [], metrics: null }));
+    setState((s) => ({ ...s, status: "connecting", error: null, transcript: [], card: null, history: [], metrics: null, insight: null, bot: null }));
     const ws = new WebSocket(`${cfg.apiUrl}?token=${encodeURIComponent(cfg.apiKey)}`);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => ws.send(JSON.stringify({ type: "session.start", context }));
+    ws.onopen = () => ws.send(JSON.stringify(first));
     ws.onmessage = (e) => handle(JSON.parse(e.data as string) as ServerMessage);
     ws.onerror = () => setState((s) => ({ ...s, status: "error", error: "Connection failed. Is the API running?" }));
     ws.onclose = () => setState((s) => (s.status === "error" ? s : { ...s, status: "idle" }));
     wsRef.current = ws;
   }, [cfg, handle]);
+
+  /** Desktop mode: this client owns the call and streams audio. */
+  const connect = useCallback((context: CallContext) => open({ type: "session.start", context }), [open]);
+
+  /** Bot mode: ask the API to send a bot into the meeting, then watch the call it creates. */
+  const sendBot = useCallback(async (meetingUrl: string, context: CallContext) => {
+    if (!cfg) return;
+    const http = cfg.apiUrl.replace(/^ws/, "http").replace(/\/v1\/live$/, "");
+    const res = await fetch(`${http}/v1/bots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({ meetingUrl, context }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+      throw new Error(typeof body.error === "string" ? body.error : `Bot request failed (${res.status})`);
+    }
+    const { callId } = (await res.json()) as { callId: string };
+    open({ type: "session.attach", callId });
+  }, [cfg, open]);
 
   const sendAudio = useCallback((frame: ArrayBuffer) => {
     const ws = wsRef.current;
@@ -92,5 +122,5 @@ export function useLiveSession(cfg: { apiUrl: string; apiKey: string } | null) {
 
   useEffect(() => () => wsRef.current?.close(), []);
 
-  return { state, connect, disconnect, sendAudio, ask };
+  return { state, connect, sendBot, disconnect, sendAudio, ask };
 }

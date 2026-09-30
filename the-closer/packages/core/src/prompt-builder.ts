@@ -1,4 +1,4 @@
-import type { CallContext, Playbook, Trigger } from "./types.js";
+import type { CallContext, Insight, KnowledgeDoc, Playbook, Trigger } from "./types.js";
 
 /**
  * Builds the two halves of every coach request.
@@ -15,7 +15,21 @@ SAY:
 <the exact words the rep should say next, first person, spoken English, 1 to 4 sentences, no bullet points>
 WHY: <one sentence on why this works now>`;
 
-export function buildSystemPrompt(playbook: Playbook, ctx: CallContext): string {
+export function buildKnowledgePack(docs: KnowledgeDoc[], maxChars = 150_000): string {
+  if (docs.length === 0) return "";
+  const sorted = [...docs].sort((a, b) => a.id.localeCompare(b.id)); // deterministic order keeps the cache prefix stable
+  const parts: string[] = ["# Knowledge base (cite only what is here; quote figures exactly)"];
+  let used = parts[0]!.length;
+  for (const d of sorted) {
+    const block = `\n## ${d.title}${d.tags?.length ? ` [${d.tags.join(", ")}]` : ""}\n${d.body.trim()}`;
+    if (used + block.length > maxChars) break;
+    parts.push(block);
+    used += block.length;
+  }
+  return parts.join("\n");
+}
+
+export function buildSystemPrompt(playbook: Playbook, ctx: CallContext, knowledge: KnowledgeDoc[] = []): string {
   const objections = playbook.objections.map((o) => `- When they say "${o.trigger}": ${o.response}`).join("\n");
   const competitors = playbook.competitors.map((c) => `- ${c.name}: ${c.counter}`).join("\n");
   const stages = Object.entries(playbook.stageGuides)
@@ -31,7 +45,8 @@ export function buildSystemPrompt(playbook: Playbook, ctx: CallContext): string 
     `- Keep it short. A rep can read about 25 words in the time a prospect pauses. Prefer one strong sentence and one question.`,
     `- Acknowledge, then reframe, then ask. Never argue with the prospect.`,
     `- Use the playbook evidence below. Never invent numbers, clients, case studies or capabilities that are not in the playbook or the briefing.`,
-    `- If the prospect asked a factual question the playbook cannot answer, tell the rep to say they will confirm and move on. Do not guess.`,
+    `- When the prospect asks a question, answer it. Pull the answer from the playbook or the knowledge base and put it in the rep's mouth in one or two sentences, then add a question that moves the call forward. If the answer is genuinely not in the material, give the rep an honest holding line ("I'll confirm that in writing today") and a bridge. Never guess a number, a date, a client name or a capability.`,
+    `- Ask the right questions. When nothing urgent is happening, the best next line is usually the highest-value unanswered discovery question: budget, timeline, decision process, what happens if they do nothing, what success looks like. Prefer the questions the transcript shows are still open.`,
     `- UK English. No emoji. No bullet points inside SAY.`,
     `- If the rep is talking too much, say so bluntly in a warning and give them a question to hand the floor back.`,
     ``,
@@ -73,6 +88,8 @@ export function buildSystemPrompt(playbook: Playbook, ctx: CallContext): string 
     ctx.deal?.notes ? `Deal notes: ${ctx.deal.notes}` : "",
     ctx.briefing ? `\nRep briefing:\n${ctx.briefing}` : "",
     ``,
+    buildKnowledgePack(knowledge),
+    ``,
     COACH_OUTPUT_FORMAT,
   ]
     .filter((line) => line !== undefined)
@@ -89,16 +106,64 @@ const REASON_TEXT: Record<Trigger["reason"], string> = {
   stage_check: "Assess which stage the call is at and give the rep the best next line for that stage.",
 };
 
-export function buildUserPrompt(transcript: string, trigger: Trigger, metrics?: { repTalkRatio: number }): string {
+export function renderInsight(insight: Insight | null | undefined): string {
+  if (!insight) return "";
+  const facts = insight.facts.map((f) => `- ${f.key}: ${f.value} (${f.confidence})`).join("\n");
+  const next = insight.nextQuestions.map((q) => `- ${q.question}`).join("\n");
+  const owed = insight.openProspectQuestions.map((q) => `- ${q}`).join("\n");
+  return [
+    `## What we know so far (stage: ${insight.stage})`,
+    facts || "- nothing confirmed yet",
+    `## Discovery questions still open (highest value first)`,
+    next || "- none",
+    owed ? `## Prospect questions we still owe an answer to\n${owed}` : "",
+    insight.risks.length ? `## Risks\n${insight.risks.map((r) => `- ${r}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildUserPrompt(
+  transcript: string,
+  trigger: Trigger,
+  metrics?: { repTalkRatio: number },
+  insight?: Insight | null,
+): string {
   const parts = [
+    renderInsight(insight),
     `## Transcript so far (most recent last)`,
     transcript || "(nothing yet)",
     ``,
     `## Situation`,
     REASON_TEXT[trigger.reason],
-  ];
+  ].filter((p) => p !== "");
   if (trigger.question) parts.push(`Rep's question: ${trigger.question}`);
   if (metrics) parts.push(`Rep talk share so far: ${Math.round(metrics.repTalkRatio * 100)}%`);
   parts.push(``, `Give the next line now.`);
   return parts.join("\n");
+}
+
+/** System prompt for the periodic structured read of the call. Stable per call, so cacheable. */
+export function buildInsightSystemPrompt(playbook: Playbook, ctx: CallContext): string {
+  return [
+    `You are the analyst behind a live sales coach. Every minute or so you read the transcript of ${ctx.rep.name}'s call and return a structured picture of the deal so the coach can ask the right next question.`,
+    `Extract only what the prospect actually said or clearly implied. Quote evidence. Mark confidence honestly.`,
+    `Facts use these keys where they fit: pain, current_solution, budget, timeline, authority, decision_process, competitor, success_metric, volume, objection, next_step.`,
+    `Next questions: the three to five highest-value questions still unanswered, drawn from the playbook list below or from gaps you see. Order by value to qualifying and closing.`,
+    `Open prospect questions: anything the prospect asked that the rep has not yet answered properly.`,
+    ``,
+    `Playbook discovery questions:`,
+    playbook.discoveryQuestions.map((q) => `- ${q}`).join("\n"),
+    ``,
+    `Stage definitions:`,
+    Object.entries(playbook.stageGuides).map(([k, v]) => `- ${k}: ${v}`).join("\n"),
+  ].join("\n");
+}
+
+export function buildInsightUserPrompt(transcript: string, previous: Insight | null): string {
+  return [
+    previous ? `## Previous read\n${JSON.stringify({ stage: previous.stage, facts: previous.facts, answeredQuestions: previous.answeredQuestions })}` : "",
+    `## Transcript so far (most recent last)`,
+    transcript || "(nothing yet)",
+    ``,
+    `Return the updated picture. Carry forward earlier facts unless the transcript contradicts them.`,
+  ].filter(Boolean).join("\n");
 }
