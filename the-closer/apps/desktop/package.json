@@ -1,0 +1,49 @@
+{
+  "name": "@closer/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Closer overlay: captures mic + meeting audio and shows the live script.",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"pnpm build:electron && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "build": "pnpm build:electron && pnpm build:renderer",
+    "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "package": "pnpm build && electron-builder",
+    "test": "echo \"no desktop unit tests yet\""
+  },
+  "dependencies": {
+    "@closer/core": "workspace:*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^38.1.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "@types/node": "^22.18.0"
+  },
+  "build": {
+    "appId": "co.uk.glaxtons.thecloser",
+    "productName": "The Closer",
+    "files": [
+      "dist/**",
+      "dist-electron/**"
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "hardenedRuntime": true,
+      "entitlements": "resources/entitlements.mac.plist"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

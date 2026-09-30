@@ -48,6 +48,7 @@ Every file in this repo is complete. No placeholders. No TODOs. No half-finished
 | [prompts/](./prompts/) | System prompts and prompt engineering techniques |
 | [blueprints/](./blueprints/) | End-to-end business automation blueprints |
 | [cheatsheets/](./cheatsheets/) | One-page references for every tool |
+| [the-closer/](./the-closer/) | Full product codebase: a real-time sales copilot that listens to Teams, Zoom and Meet calls and feeds the rep a live script from Claude |
 
 ## Quick start (60 seconds to value)
 
@@ -125,6 +126,10 @@ Blueprints are the longest documents in the repo. Each one walks through buildin
 ### cheatsheets/
 
 When you need the answer in 5 seconds and not 5 minutes.
+
+### the-closer/
+
+A working SaaS codebase, not a guide. Electron overlay captures the call audio, a Fastify API streams it to Deepgram and asks Claude for the next line, and the overlay shows it in about a second. Tested end to end without spending tokens. Start with [the-closer/README.md](./the-closer/README.md).
 
 ## Star history
 

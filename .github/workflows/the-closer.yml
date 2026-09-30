@@ -1,0 +1,23 @@
+name: the-closer
+on:
+  push:
+    paths: ["the-closer/**", ".github/workflows/the-closer.yml"]
+  pull_request:
+    paths: ["the-closer/**", ".github/workflows/the-closer.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: the-closer } }
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: the-closer/pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @closer/core build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @closer/desktop build:renderer

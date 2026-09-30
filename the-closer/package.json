@@ -1,0 +1,20 @@
+{
+  "name": "the-closer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Closer: real-time sales copilot that listens to Teams, Zoom and Meet calls and feeds the rep a live script.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r --filter ./packages/core --filter ./apps/api build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev:api": "pnpm --filter @closer/api dev",
+    "dev:desktop": "pnpm --filter @closer/desktop dev",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

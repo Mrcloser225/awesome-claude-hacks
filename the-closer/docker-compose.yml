@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: closer
+      POSTGRES_PASSWORD: closer
+      POSTGRES_DB: closer
+    ports: ["5432:5432"]
+    volumes: ["closer-pg:/var/lib/postgresql/data"]
+volumes:
+  closer-pg:
