@@ -10,6 +10,7 @@ export interface LiveDeps {
   hub: SessionHub;
   /** Builds a session for a desktop-driven call. The hub supplies the broadcaster. */
   createSession: (ctx: CallContext, send: (m: ServerMessage) => void) => Promise<LiveSession>;
+  onCallStarted?: (session: LiveSession, orgId: string) => Promise<void> | void;
   onCallEnded?: (session: LiveSession) => Promise<void> | void;
 }
 
@@ -45,8 +46,8 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
       const s = owned;
       owned = undefined;
       await s.stop();
+      await deps.onCallEnded?.(s); // persist while the hub still knows the tenant
       deps.hub.remove(s.ctx.callId);
-      await deps.onCallEnded?.(s);
     };
 
     let chain: Promise<void> = Promise.resolve();
@@ -67,9 +68,10 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
             attached?.detach();
             attached = undefined;
             const session = await deps.createSession(msg.context, deps.hub.broadcaster(msg.context.callId));
-            deps.hub.register(session);
+            deps.hub.register(session, { orgId: principal.orgId });
             deps.hub.attach(msg.context.callId, send);
             owned = session;
+            await deps.onCallStarted?.(session, principal.orgId);
             await session.start();
             break;
           }

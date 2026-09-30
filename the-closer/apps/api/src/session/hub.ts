@@ -7,6 +7,7 @@ interface Entry {
   session: LiveSession;
   subscribers: Set<Subscriber>;
   bot: { botId: string; status: BotStatus; detail?: string } | null;
+  orgId?: string;
 }
 
 /**
@@ -30,8 +31,8 @@ export class SessionHub {
     };
   }
 
-  register(session: LiveSession, opts: { botId?: string } = {}): void {
-    const entry: Entry = { session, subscribers: new Set(), bot: opts.botId ? { botId: opts.botId, status: "requested" } : null };
+  register(session: LiveSession, opts: { botId?: string; orgId?: string } = {}): void {
+    const entry: Entry = { session, subscribers: new Set(), bot: opts.botId ? { botId: opts.botId, status: "requested" } : null, orgId: opts.orgId };
     this.byCall.set(session.ctx.callId, entry);
     if (opts.botId) this.byBot.set(opts.botId, session.ctx.callId);
   }
@@ -72,8 +73,12 @@ export class SessionHub {
     return () => { e.subscribers.delete(sub); };
   }
 
-  list(): Array<{ callId: string; bot: Entry["bot"]; subscribers: number; startedAt: number }> {
-    return [...this.byCall.entries()].map(([callId, e]) => ({ callId, bot: e.bot, subscribers: e.subscribers.size, startedAt: e.session.startedAt }));
+  list(): Array<{ callId: string; bot: Entry["bot"]; subscribers: number; startedAt: number; orgId?: string }> {
+    return [...this.byCall.entries()].map(([callId, e]) => ({ callId, bot: e.bot, subscribers: e.subscribers.size, startedAt: e.session.startedAt, orgId: e.orgId }));
+  }
+
+  orgOf(callId: string): string | undefined {
+    return this.byCall.get(callId)?.orgId;
   }
 
   remove(callId: string): void {

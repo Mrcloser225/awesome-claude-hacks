@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { CoachModel, InsightModel, ServerMessage } from "@closer/core";
 import { buildApp } from "../src/app.js";
-import { DevAuth } from "../src/auth.js";
 import { NoopStt } from "../src/stt/none.js";
 
 /**
@@ -46,13 +45,13 @@ let base = "";
 
 beforeAll(async () => {
   ({ app } = await buildApp({
-    auth: new DevAuth("k"),
+    devApiKey: "k",
     makeStt: () => new NoopStt(),
     model: coach,
     insightModel: insight,
     knowledge: new Map([["pricing", { id: "pricing", title: "Price list", body: "Bid review from £1,500. Full bid management from £6,000." }]]),
     createBot: async ({ meetingUrl }) => { expect(meetingUrl).toContain("teams.microsoft.com"); return { botId: "bot-42" }; },
-    onCallEnded: (s) => { ended.push(s.ctx.callId); },
+    onCallEnded: (s, rec) => { ended.push(s.ctx.callId); expect(rec?.transcript.length).toBeGreaterThan(0); },
   }));
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
@@ -120,17 +119,20 @@ describe("meeting bot flow", () => {
 
     // REST view of the live call, and a rep asking through REST (Teams tab without a socket).
     const view = await app.inject({ method: "GET", url: "/v1/calls/call-bot", headers: { authorization: "Bearer k" } });
-    expect(view.json()).toMatchObject({ callId: "call-bot", insight: { stage: "discovery" } });
+    expect(view.json()).toMatchObject({ id: "call-bot", live: true, source: "bot", insight: { stage: "discovery" } });
     expect((view.json() as { events: unknown[] }).events).toHaveLength(1);
     const ask = await app.inject({ method: "POST", url: "/v1/calls/call-bot/ask", headers: { authorization: "Bearer k" }, payload: { question: "give me a close" } });
     expect(ask.statusCode).toBe(202);
 
-    // Call ends: session closes, hub forgets it, onCallEnded fired.
+    // Call ends: session closes, hub forgets it, the record is frozen, onCallEnded fired.
     await app.inject({ method: "POST", url: "/v1/webhooks/recall", payload: { event: "bot.done", data: { bot: { id: "bot-42" }, data: { code: "done" } } } });
     expect(await waitFor((m) => m.type === "bot.status" && m.status === "ended")).toBeTruthy();
     expect(ended).toEqual(["call-bot"]);
-    const gone = await app.inject({ method: "GET", url: "/v1/calls/call-bot", headers: { authorization: "Bearer k" } });
-    expect(gone.statusCode).toBe(404);
+    const stored = await app.inject({ method: "GET", url: "/v1/calls/call-bot", headers: { authorization: "Bearer k" } });
+    expect(stored.json()).toMatchObject({ id: "call-bot", live: false, endedAt: expect.any(Number) });
+    expect((stored.json() as { transcript: unknown[] }).transcript.length).toBe(4);
+    const list = await app.inject({ method: "GET", url: "/v1/calls", headers: { authorization: "Bearer k" } });
+    expect(list.json()).toMatchObject([{ id: "call-bot", live: false, source: "bot" }]);
     ws.close();
   });
 
@@ -141,7 +143,7 @@ describe("meeting bot flow", () => {
     expect(err).toMatchObject({ type: "error", code: "no_such_call" });
     ws.close();
 
-    const { app: bare } = await buildApp({ auth: new DevAuth("k"), makeStt: () => new NoopStt(), model: coach });
+    const { app: bare } = await buildApp({ devApiKey: "k", makeStt: () => new NoopStt(), model: coach });
     const res = await bare.inject({ method: "POST", url: "/v1/bots", headers: { authorization: "Bearer k" }, payload: { meetingUrl: "https://teams.microsoft.com/x", context: { callId: "c", rep: { name: "a", company: "b" } } } });
     expect(res.statusCode).toBe(501);
     await bare.close();

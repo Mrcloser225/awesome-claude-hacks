@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { CoachModel, ServerMessage, TranscriptSegment } from "@closer/core";
 import { buildApp } from "../src/app.js";
-import { DevAuth } from "../src/auth.js";
 import type { SttProvider } from "../src/stt/types.js";
 
 /**
@@ -43,7 +42,7 @@ let baseUrl = "";
 let app: Awaited<ReturnType<typeof buildApp>>["app"];
 
 beforeAll(async () => {
-  ({ app } = await buildApp({ auth: new DevAuth("test-key"), makeStt: () => new ScriptedStt(), model: scriptedModel }));
+  ({ app } = await buildApp({ devApiKey: "test-key", makeStt: () => new ScriptedStt(), model: scriptedModel }));
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
   if (!addr || typeof addr === "string") throw new Error("no address");

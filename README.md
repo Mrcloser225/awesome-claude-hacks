@@ -48,7 +48,7 @@ Every file in this repo is complete. No placeholders. No TODOs. No half-finished
 | [prompts/](./prompts/) | System prompts and prompt engineering techniques |
 | [blueprints/](./blueprints/) | End-to-end business automation blueprints |
 | [cheatsheets/](./cheatsheets/) | One-page references for every tool |
-| [the-closer/](./the-closer/) | Full product codebase: a real-time sales copilot that listens to Teams, Zoom and Meet calls and feeds the rep a live script from Claude |
+| [the-closer/](./the-closer/) | TheCloser.ai, a full SaaS codebase: a bot joins your Teams, Zoom or Meet call and Claude works the call with you in the browser, live |
 
 ## Quick start (60 seconds to value)
 

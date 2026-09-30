@@ -13,7 +13,8 @@ export class RecallClient {
       headers: { Authorization: `Token ${this.opts.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         meeting_url: input.meetingUrl,
-        bot_name: input.botName ?? "The Closer notetaker",
+        // Display name shown in the participant list. Defaults to "<rep> (notes)"; tenants can set anything.
+        bot_name: input.botName ?? `${input.repName} (notes)`,
         metadata: { callId: input.callId, repName: input.repName },
         recording_config: {
           transcript: { provider: { deepgram_streaming: { model: "nova-3", language: "en-GB" } } },

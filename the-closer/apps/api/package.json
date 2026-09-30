@@ -19,6 +19,7 @@
     "@fastify/websocket": "^11.1.0",
     "drizzle-orm": "^0.44.5",
     "fastify": "^5.5.0",
+    "jose": "^6.2.12",
     "pino": "^9.9.0",
     "postgres": "^3.4.7",
     "ws": "^8.18.3",

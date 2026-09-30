@@ -21,3 +21,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @closer/desktop build:renderer
+      - run: pnpm --filter @closer/web build
+        env: { NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_API_URL: "https://api.thecloser.ai" }

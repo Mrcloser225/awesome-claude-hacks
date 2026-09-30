@@ -1,9 +1,10 @@
 import { loadConfig } from "./config.js";
 import { buildApp } from "./app.js";
-import { DevAuth } from "./auth.js";
+import { AnthropicChatModel } from "./coach/call-chat.js";
 import { AnthropicCoachModel } from "./coach/anthropic-model.js";
 import { AnthropicInsightModel } from "./coach/anthropic-insight-model.js";
 import { summariseCall } from "./coach/summary.js";
+import { TranscriptStore } from "@closer/core";
 import { DeepgramLive } from "./stt/deepgram.js";
 import { NoopStt } from "./stt/none.js";
 import { RecallClient } from "./recall-client.js";
@@ -19,18 +20,27 @@ const recall = cfg.recallApiKey
   ? new RecallClient({ apiKey: cfg.recallApiKey, region: cfg.recallRegion, webhookUrl: `${publicUrl}/v1/webhooks/recall` })
   : undefined;
 
-const { app } = await buildApp({
-  auth: new DevAuth(cfg.devApiKey),
+const { app, calls } = await buildApp({
+  devApiKey: cfg.devApiKey,
+  jwtSecret: cfg.jwtSecret,
+  secureCookies: cfg.secureCookies,
   makeStt: () => (cfg.deepgramApiKey ? new DeepgramLive(cfg.deepgramApiKey) : new NoopStt()),
   model: new AnthropicCoachModel({ apiKey: cfg.anthropicApiKey, model: cfg.coachModel, effort: cfg.coachEffort, webSearch: cfg.coachWebSearch }),
   insightModel: new AnthropicInsightModel({ apiKey: cfg.anthropicApiKey, model: cfg.insightModel }),
+  chatModel: new AnthropicChatModel({ apiKey: cfg.anthropicApiKey, model: cfg.chatModel }),
+  summarise: async (rec) => {
+    const store = new TranscriptStore({ maxSegments: 100_000 });
+    for (const seg of rec.transcript) store.upsert(seg);
+    return summariseCall({ apiKey: cfg.anthropicApiKey, model: cfg.summaryModel, ctx: rec.context, store, events: rec.events });
+  },
   recallWebhookSecret: cfg.recallWebhookSecret,
   createBot: recall ? (i) => recall.createBot(i) : undefined,
-  onCallEnded: async (s) => {
+  onCallEnded: async (s, rec) => {
     app.log.info({ callId: s.ctx.callId, segments: s.store.finals().length, events: s.events.length }, "call ended");
-    if (s.store.finals().length < 4) return;
+    if (!rec || rec.transcript.length < 4) return;
     try {
       const summary = await summariseCall({ apiKey: cfg.anthropicApiKey, model: cfg.summaryModel, ctx: s.ctx, store: s.store, events: s.events });
+      await calls.upsert({ ...rec, summary });
       app.log.info({ callId: s.ctx.callId, outcome: summary.outcome, nextStep: summary.nextStep }, "call summarised");
     } catch (err) {
       app.log.error({ err, callId: s.ctx.callId }, "summary failed");

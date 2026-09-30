@@ -82,8 +82,8 @@ export function registerRecallRoute(app: FastifyInstance, deps: RecallDeps): voi
       const session = deps.hub.setBotStatus(botId, status, evt.data.data?.sub_code ?? undefined);
       if (session && (status === "ended" || status === "failed")) {
         await session.stop();
+        await deps.onCallEnded?.(session); // persist while the hub still knows the tenant
         deps.hub.remove(session.ctx.callId);
-        await deps.onCallEnded?.(session);
       }
       return reply.code(204).send();
     }
