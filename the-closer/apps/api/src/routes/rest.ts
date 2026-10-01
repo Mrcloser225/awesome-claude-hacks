@@ -6,6 +6,8 @@ import { extractToken, type AuthResolver, type Principal } from "../auth.js";
 
 export interface RestDeps {
   auth: AuthResolver;
+  /** Returns the names of background jobs that have not run on schedule. */
+  staleJobs?: () => string[];
   listPlaybooks: (orgId: string) => Promise<Playbook[]>;
   savePlaybook: (orgId: string, playbook: Playbook) => Promise<Playbook>;
   listKnowledge: (orgId: string) => Promise<KnowledgeDoc[]>;
@@ -41,14 +43,19 @@ type Authed = { principal: Principal };
 
 export function registerRestRoutes(app: FastifyInstance, deps: RestDeps): void {
   app.addHook("preHandler", async (req, reply) => {
-    if (!req.url.startsWith("/v1/") || req.url.startsWith("/v1/live") || req.url.startsWith("/v1/webhooks") || req.url.startsWith("/v1/auth/signup") || req.url.startsWith("/v1/auth/login")) return;
+    const open = ["/v1/live", "/v1/webhooks", "/v1/auth/signup", "/v1/auth/login", "/v1/auth/verify", "/v1/auth/forgot", "/v1/auth/reset", "/v1/auth/invite", "/v1/auth/accept-invite", "/v1/integrations/calendar/microsoft/callback", "/v1/integrations/calendar/google/callback", "/v1/integrations/crm/salesforce/callback", "/v1/integrations/crm/hubspot/callback"];
+    if (!req.url.startsWith("/v1/") || open.some((o) => req.url.startsWith(o))) return;
     const token = extractToken(req);
     const principal = token ? await deps.auth.resolve(token) : null;
     if (!principal) return reply.code(401).send({ error: "unauthorised" });
     (req as unknown as Authed).principal = principal;
   });
 
-  app.get("/health", async () => ({ ok: true, service: "the-closer-api" }));
+  app.get("/health", async (_req, reply) => {
+    const stale = deps.staleJobs?.() ?? [];
+    if (stale.length) return reply.code(503).send({ ok: false, service: "the-closer-api", degraded: stale });
+    return { ok: true, service: "the-closer-api" };
+  });
   /** Which model providers this build can run on. Public, no keys. */
   app.get("/providers", async () => listProviders());
 

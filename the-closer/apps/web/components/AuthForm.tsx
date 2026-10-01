@@ -33,7 +33,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         {err && <div className="err">{err}</div>}
         <button className="primary" disabled={busy}>{busy ? "One moment" : mode === "signup" ? "Start free" : "Sign in"}</button>
         <p className="small muted" style={{ margin: 0 }}>
-          {mode === "signup" ? <>Already have an account? <Link href="/login" style={{ color: "var(--violet-2)" }}>Sign in</Link></> : <>New here? <Link href="/signup" style={{ color: "var(--violet-2)" }}>Create an account</Link></>}
+          {mode === "signup" ? <>Already have an account? <Link href="/login" style={{ color: "var(--violet-2)" }}>Sign in</Link></> : <>New here? <Link href="/signup" style={{ color: "var(--violet-2)" }}>Create an account</Link>. <Link href="/forgot" style={{ color: "var(--violet-2)" }}>Forgot password?</Link></>}
         </p>
       </form>
     </main>

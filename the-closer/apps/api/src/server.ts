@@ -8,7 +8,18 @@ import { DeepgramLive } from "./stt/deepgram.js";
 import { NoopStt } from "./stt/none.js";
 import { RecallClient } from "./recall-client.js";
 import { createDb, runMigrations } from "./db/client.js";
-import { PgCalendarStore, PgCallStore, PgKnowledgeStore, PgPlaybookStore, PgUserStore } from "./db/stores.js";
+import { PgCalendarStore, PgCallStore, PgKnowledgeStore, PgOrgStore, PgPlaybookStore, PgUserStore } from "./db/stores.js";
+import { AesGcmCipher, NoopCipher, type Cipher } from "./platform/crypto.js";
+import { ConsoleMailer, ResendMailer, type Mailer } from "./platform/mailer.js";
+import { ErrorReporter, Metrics } from "./platform/metrics.js";
+import { MemoryRateLimiter, RedisRateLimiter, type RateLimiter } from "./platform/rate-limit.js";
+import { StripeClient, type StripePlan } from "./platform/stripe.js";
+import { MemoryBus, RedisBus, type EventBus } from "./session/bus.js";
+import { SalesforceOAuth } from "./crm/salesforce.js";
+import { HubSpotOAuth } from "./crm/hubspot.js";
+import type { CrmOAuth } from "./crm/types.js";
+import { orgs as orgsTable } from "./db/schema.js";
+import { Redis } from "ioredis";
 import { MicrosoftCalendar } from "./autojoin/microsoft.js";
 import { GoogleCalendar } from "./autojoin/google.js";
 import type { CalendarProvider, CalendarProviderId } from "./autojoin/types.js";
@@ -30,15 +41,46 @@ const recall = cfg.recallApiKey
   : undefined;
 
 // Persistence: Postgres when DATABASE_URL is set, otherwise in-memory (development only).
+const cipher: Cipher = cfg.encryptionKey ? new AesGcmCipher(cfg.encryptionKey) : new NoopCipher();
+if (!cfg.encryptionKey) console.warn("ENCRYPTION_KEY not set; calendar and CRM tokens will be stored in plaintext. Set it before connecting real accounts.");
+
 let stores: Partial<Parameters<typeof buildApp>[0]> = {};
 if (cfg.databaseUrl) {
   await runMigrations(cfg.databaseUrl);
   const { db } = createDb(cfg.databaseUrl);
-  stores = { users: new PgUserStore(db), calls: new PgCallStore(db), knowledge: new PgKnowledgeStore(db), playbooks: new PgPlaybookStore(db, GLAXTONS_PLAYBOOK), calendars: new PgCalendarStore(db) };
+  const orgStore = Object.assign(new PgOrgStore(db, cipher), { listOrgIds: async () => (await db.select({ id: orgsTable.id }).from(orgsTable)).map((r) => r.id) });
+  stores = { users: new PgUserStore(db), orgs: orgStore, calls: new PgCallStore(db), knowledge: new PgKnowledgeStore(db), playbooks: new PgPlaybookStore(db, GLAXTONS_PLAYBOOK), calendars: new PgCalendarStore(db, cipher) };
   console.log("Persistence: Postgres");
 } else {
   console.warn("DATABASE_URL not set; using in-memory stores. Everything is forgotten on restart.");
 }
+
+// Multi-instance: Redis carries call events and webhook routing between API processes, and shares rate limits.
+let bus: EventBus = new MemoryBus();
+let limiter: RateLimiter = new MemoryRateLimiter();
+if (cfg.redisUrl) {
+  const client = new Redis(cfg.redisUrl, { maxRetriesPerRequest: 3 });
+  bus = new RedisBus(client);
+  limiter = new RedisRateLimiter(client);
+  console.log("Scale-out: Redis bus and shared rate limits");
+} else {
+  console.log("Single instance: in-memory bus. Set REDIS_URL to run more than one API process.");
+}
+
+const mailer: Mailer = cfg.resendApiKey ? new ResendMailer({ apiKey: cfg.resendApiKey, from: cfg.mailFrom }) : new ConsoleMailer();
+if (!cfg.resendApiKey) console.warn("RESEND_API_KEY not set; verification, reset and invite emails are printed to the log instead of sent.");
+
+const stripe = cfg.stripeSecretKey ? new StripeClient({ secretKey: cfg.stripeSecretKey, webhookSecret: cfg.stripeWebhookSecret }) : undefined;
+const stripePlans: StripePlan[] = [cfg.stripePriceSolo && { id: "solo" as const, priceId: cfg.stripePriceSolo }, cfg.stripePriceTeam && { id: "team" as const, priceId: cfg.stripePriceTeam }].filter((x): x is StripePlan => Boolean(x));
+console.log(stripe ? `Billing: Stripe (${stripePlans.map((p) => p.id).join(", ") || "no prices set"})` : "Billing: not configured (STRIPE_SECRET_KEY)");
+
+const crmProviders: Partial<Record<"salesforce" | "hubspot", CrmOAuth>> = {};
+if (cfg.sfClientId && cfg.sfClientSecret) crmProviders.salesforce = new SalesforceOAuth({ clientId: cfg.sfClientId, clientSecret: cfg.sfClientSecret, loginUrl: cfg.sfLoginUrl, redirectUri: `${publicUrl}/v1/integrations/crm/salesforce/callback` });
+if (cfg.hsClientId && cfg.hsClientSecret) crmProviders.hubspot = new HubSpotOAuth({ clientId: cfg.hsClientId, clientSecret: cfg.hsClientSecret, redirectUri: `${publicUrl}/v1/integrations/crm/hubspot/callback` });
+console.log(`CRM providers: ${Object.keys(crmProviders).join(", ") || "none"}`);
+
+const metrics = new Metrics();
+const reporter = new ErrorReporter({ webhookUrl: cfg.errorWebhookUrl, service: "the-closer-api" });
 
 const calendarProviders: Partial<Record<CalendarProviderId, CalendarProvider>> = {};
 if (cfg.msClientId && cfg.msClientSecret) calendarProviders.microsoft = new MicrosoftCalendar({ clientId: cfg.msClientId, clientSecret: cfg.msClientSecret, tenant: cfg.msTenant, redirectUri: `${publicUrl}/v1/integrations/calendar/microsoft/callback` });
@@ -49,6 +91,14 @@ const { app, calls } = await buildApp({
   ...stores,
   calendarProviders,
   webUrl: cfg.webUrl,
+  bus,
+  limiter,
+  mailer,
+  metrics,
+  stripe,
+  stripePlans,
+  crmProviders,
+  sendBotChat: recall ? (botId, message) => recall.sendChatMessage(botId, message) : undefined,
   devApiKey: cfg.devApiKey,
   jwtSecret: cfg.jwtSecret,
   secureCookies: cfg.secureCookies,
@@ -76,6 +126,14 @@ const { app, calls } = await buildApp({
   },
   logger: true,
 });
+
+app.setErrorHandler((err, req, reply) => {
+  metrics.inc("errors");
+  reporter.report(err, { url: req.url, method: req.method });
+  req.log.error({ err }, "unhandled");
+  reply.code((err as { statusCode?: number }).statusCode ?? 500).send({ error: "Something went wrong on our side. It has been reported." });
+});
+process.on("unhandledRejection", (err) => { metrics.inc("errors"); reporter.report(err, { where: "unhandledRejection" }); });
 
 await app.listen({ port: cfg.port, host: "0.0.0.0" });
 app.log.info({ publicUrl }, "The Closer API up. Recall webhook must reach PUBLIC_URL/v1/webhooks/recall");

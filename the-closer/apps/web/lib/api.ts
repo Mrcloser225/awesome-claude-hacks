@@ -3,7 +3,10 @@ import type { CallContext, CoachEvent, Insight, TranscriptSegment } from "@close
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787").replace(/\/$/, "");
 export const WS_URL = API_URL.replace(/^http/, "ws") + "/v1/live";
 
-export interface User { id: string; orgId: string; email?: string; name: string; company: string }
+export interface User { id: string; orgId: string; email?: string; name: string; company: string; role: "rep" | "manager" | "admin" }
+export interface Member { id: string; email: string; name: string; role: "rep" | "manager" | "admin"; emailVerifiedAt?: number; createdAt: number }
+export interface Org { id: string; name: string; plan: string; seats: number; retentionDays: number; disclosure: "chat_message" | "name_only" | "off"; trialCallsUsed: number }
+export interface Billing { plan: string; seats: number; limits: { coachCallsPerMinute: number; chatTurnsPerMinute: number; botsPerDay: number; trialCalls?: number }; trialCallsUsed: number; configured: boolean; hasSubscription: boolean }
 export interface CallListItem { id: string; title: string; source: string; startedAt: number; endedAt: number | null; live: boolean; prospect: { name?: string; company?: string } | null; outcome: string | null }
 export interface CallRecordView {
   id: string; title: string; source: string; context: CallContext; startedAt: number; endedAt: number | null; live: boolean;
@@ -48,6 +51,34 @@ export const api = {
   deleteKnowledge: (id: string) => req<void>(`/v1/knowledge/${encodeURIComponent(id)}`, { method: "DELETE" }),
   firefliesList: (apiKey: string) => req<Array<{ id: string; title: string; date: number; duration: number }>>("/v1/integrations/fireflies/transcripts", { method: "POST", body: JSON.stringify({ apiKey }) }),
   firefliesImport: (d: { apiKey: string; transcriptId: string; repName?: string }) => req<{ callId: string }>("/v1/integrations/fireflies/import", { method: "POST", body: JSON.stringify(d) }),
+  deleteCall: (id: string) => req<void>(`/v1/calls/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  pushCrm: (id: string) => req<{ pushed: Array<{ provider: string; id: string; url?: string }> }>(`/v1/calls/${encodeURIComponent(id)}/crm`, { method: "POST", body: "{}" }),
+  forgot: (email: string) => req<{ ok: true }>("/v1/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
+  reset: (token: string, password: string) => req<{ ok: true }>("/v1/auth/reset", { method: "POST", body: JSON.stringify({ token, password }) }),
+  verify: (token: string) => req<{ ok: true }>("/v1/auth/verify", { method: "POST", body: JSON.stringify({ token }) }),
+  resendVerification: () => req<{ ok: true }>("/v1/auth/resend-verification", { method: "POST" }),
+  invitePreview: (token: string) => req<{ email: string; role: string; company?: string }>(`/v1/auth/invite?token=${encodeURIComponent(token)}`),
+  acceptInvite: (d: { token: string; name: string; password: string }) => req<{ token: string; user: User }>("/v1/auth/accept-invite", { method: "POST", body: JSON.stringify(d) }),
+  org: () => req<{ org: Org; me: { id: string; role: string; email?: string } }>("/v1/org"),
+  updateOrg: (d: Partial<Pick<Org, "name" | "retentionDays" | "disclosure">>) => req<Org>("/v1/org", { method: "PATCH", body: JSON.stringify(d) }),
+  members: () => req<Member[]>("/v1/org/members"),
+  invite: (email: string, role: string) => req<{ ok: true }>("/v1/org/invites", { method: "POST", body: JSON.stringify({ email, role }) }),
+  setRole: (id: string, role: string) => req<{ ok: true }>(`/v1/org/members/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  removeMember: (id: string) => req<void>(`/v1/org/members/${id}`, { method: "DELETE" }),
+  apiKeys: () => req<Array<{ id: string; label?: string; createdAt: number; revokedAt?: number }>>("/v1/org/api-keys"),
+  mintApiKey: (label: string) => req<{ id: string; key: string }>("/v1/org/api-keys", { method: "POST", body: JSON.stringify({ label }) }),
+  revokeApiKey: (id: string) => req<void>(`/v1/org/api-keys/${id}`, { method: "DELETE" }),
+  billing: () => req<Billing>("/v1/billing"),
+  checkout: (plan: "solo" | "team", seats: number) => req<{ url: string }>("/v1/billing/checkout", { method: "POST", body: JSON.stringify({ plan, seats }) }),
+  portal: () => req<{ url: string }>("/v1/billing/portal", { method: "POST" }),
+  usage: () => req<Record<string, number>>("/v1/org/usage"),
+  crmList: () => req<Array<{ id: string; provider: string; autoPush: boolean; instanceUrl?: string }>>("/v1/integrations/crm"),
+  crmProviders: () => req<string[]>("/v1/integrations/crm/providers"),
+  crmConnect: (provider: string) => req<{ url: string }>(`/v1/integrations/crm/${provider}/connect`),
+  crmToggle: (id: string, autoPush: boolean) => req<{ ok: true }>(`/v1/integrations/crm/${id}`, { method: "PATCH", body: JSON.stringify({ autoPush }) }),
+  crmDisconnect: (id: string) => req<void>(`/v1/integrations/crm/${id}`, { method: "DELETE" }),
+  exportUrl: () => `${API_URL}/v1/org/export`,
+  deleteOrg: () => req<void>("/v1/org", { method: "DELETE", body: JSON.stringify({ confirm: "DELETE" }) }),
 };
 
 /** Streams the chat reply; calls onDelta for each chunk. */

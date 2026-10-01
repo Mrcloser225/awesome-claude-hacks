@@ -38,6 +38,7 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
 
     let owned: LiveSession | undefined;
     let attached: { session: LiveSession; detach: () => void } | undefined;
+    let remoteDetach: (() => void) | undefined;
     const log = req.log;
     const current = () => owned ?? attached?.session;
 
@@ -79,7 +80,13 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
             await endOwned();
             attached?.detach();
             const session = deps.hub.get(msg.callId);
-            if (!session) return send({ type: "error", code: "no_such_call", message: `No live call ${msg.callId}` });
+            if (!session) {
+              const remote = await deps.hub.attachRemote(msg.callId, send);
+              if (!remote) return send({ type: "error", code: "no_such_call", message: `No live call ${msg.callId}` });
+              remoteDetach = remote;
+              send({ type: "session.ready", callId: msg.callId });
+              break;
+            }
             const detach = deps.hub.attach(msg.callId, send);
             attached = detach ? { session, detach } : undefined;
             break;
@@ -114,6 +121,7 @@ export function registerLiveRoute(app: FastifyInstance, deps: LiveDeps): void {
     socket.on("close", async () => {
       await chain;
       attached?.detach();
+      remoteDetach?.();
       await endOwned();
     });
   });

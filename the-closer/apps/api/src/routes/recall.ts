@@ -49,6 +49,10 @@ export interface RecallDeps {
   webhookSecret?: string;
   hub: SessionHub;
   onCallEnded?: (session: LiveSession) => Promise<void> | void;
+  /** Called once when the bot is in the call, with the org that owns it. Used for the recording disclosure. */
+  onInCall?: (botId: string, callId: string) => Promise<void> | void;
+  /** When the call lives on another instance, hand the segment over the bus. */
+  forwardIngest?: (callId: string, seg: Parameters<LiveSession["ingest"]>[0]) => Promise<void>;
   /** Decide whether a participant is the rep. Default: name matches bot metadata.repName. */
   isRep?: (participantName: string | null | undefined, botMetadata: Record<string, string> | undefined) => boolean;
 }
@@ -80,6 +84,9 @@ export function registerRecallRoute(app: FastifyInstance, deps: RecallDeps): voi
       const status = STATUS_MAP[code] ?? (evt.event === "bot.done" ? "ended" : evt.event === "bot.fatal" ? "failed" : undefined);
       if (!status) return reply.code(204).send();
       const session = deps.hub.setBotStatus(botId, status, evt.data.data?.sub_code ?? undefined);
+      if (session && status === "in_call" && code === "in_call_recording" && deps.onInCall) {
+        try { await deps.onInCall(botId, session.ctx.callId); } catch (err) { req.log.warn({ err, botId }, "disclosure failed"); }
+      }
       if (session && (status === "ended" || status === "failed")) {
         await session.stop();
         await deps.onCallEnded?.(session); // persist while the hub still knows the tenant
@@ -90,9 +97,22 @@ export function registerRecallRoute(app: FastifyInstance, deps: RecallDeps): voi
 
     if (evt.event !== "transcript.data" && evt.event !== "transcript.partial_data") return reply.code(204).send();
     const session = deps.hub.forBot(botId);
-    if (!session) return reply.code(404).send({ error: "no session for bot" });
-
     const words = evt.data.data?.words ?? [];
+    if (!session) {
+      // Another instance may own this bot's call.
+      const callId = await deps.hub.callForBot(botId);
+      if (callId && deps.forwardIngest && words.length > 0) {
+        const name = evt.data.data?.participant?.name ?? null;
+        const meta = evt.data.bot?.metadata;
+        const isRep = Boolean(meta?.repName && name && name.toLowerCase() === meta.repName.toLowerCase());
+        const startMs = Math.round(words[0]!.start_timestamp.relative * 1000);
+        const last = words[words.length - 1]!;
+        await deps.forwardIngest(callId, { id: `recall_${botId}_${startMs}_${isRep ? "r" : "p"}`, speaker: isRep ? "rep" : "prospect", participant: name ?? undefined, text: words.map((w) => w.text).join(" "), startMs, endMs: Math.round((last.end_timestamp?.relative ?? last.start_timestamp.relative) * 1000), isFinal: evt.event === "transcript.data" });
+        return reply.code(204).send();
+      }
+      return reply.code(404).send({ error: "no session for bot" });
+    }
+
     if (words.length === 0) return reply.code(204).send();
     const name = evt.data.data?.participant?.name ?? null;
     const meta = evt.data.bot?.metadata;

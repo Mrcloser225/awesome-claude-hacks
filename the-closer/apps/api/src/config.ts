@@ -21,6 +21,20 @@ export interface ApiConfig {
   msTenant?: string;
   googleClientId?: string;
   googleClientSecret?: string;
+  encryptionKey?: string;
+  redisUrl?: string;
+  stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
+  stripePriceSolo?: string;
+  stripePriceTeam?: string;
+  resendApiKey?: string;
+  mailFrom: string;
+  sfClientId?: string;
+  sfClientSecret?: string;
+  sfLoginUrl?: string;
+  hsClientId?: string;
+  hsClientSecret?: string;
+  errorWebhookUrl?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -48,5 +62,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     msTenant: env.MS_TENANT,
     googleClientId: env.GOOGLE_CLIENT_ID,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+    encryptionKey: env.ENCRYPTION_KEY,
+    redisUrl: env.REDIS_URL,
+    stripeSecretKey: env.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+    stripePriceSolo: env.STRIPE_PRICE_SOLO,
+    stripePriceTeam: env.STRIPE_PRICE_TEAM,
+    resendApiKey: env.RESEND_API_KEY,
+    mailFrom: env.MAIL_FROM ?? "The Closer <hello@thecloser.ai>",
+    sfClientId: env.SALESFORCE_CLIENT_ID,
+    sfClientSecret: env.SALESFORCE_CLIENT_SECRET,
+    sfLoginUrl: env.SALESFORCE_LOGIN_URL,
+    hsClientId: env.HUBSPOT_CLIENT_ID,
+    hsClientSecret: env.HUBSPOT_CLIENT_SECRET,
+    errorWebhookUrl: env.ERROR_WEBHOOK_URL,
   };
 }

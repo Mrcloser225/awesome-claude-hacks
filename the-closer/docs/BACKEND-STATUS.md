@@ -1,45 +1,40 @@
 # Backend status
 
-What is built and tested, and what is still missing before you rely on it for live calls and before you sell seats. Honest list, updated 1 October 2026.
+What is built and tested, and what still needs your hands. Updated 1 October 2026.
 
-## Built and tested (23 API tests, 23 core tests)
+## Built and tested
 
 | Area | State |
 |---|---|
 | Live pipeline | Audio or bot transcript in, coach cards streamed out, priority pre-emption, talk metrics. Tested over a real socket. |
-| Meeting bot | Recall.ai create bot (immediate or scheduled with `join_at`), transcript and lifecycle webhooks, named-participant attribution, call closed out on bot leaving. |
-| Calendar auto-join | Microsoft 365 and Google Calendar OAuth, token refresh, 5-minute scheduler, external-only filter, idempotent booking, per-connection bot name, preview of the next 24 hours. Tested with fake providers. |
-| Coach brain | Playbook plus knowledge base in a cached system prompt, question answering, discovery tracker, call chat, post-call summary. Claude native; OpenAI-compatible adapter for every other provider. |
-| Accounts | Email and password, scrypt, JWT in HttpOnly cookie, Bearer for the desktop app. Tenant isolation tested. |
-| Persistence | Postgres through Drizzle for users, orgs, calls, knowledge, playbooks, calendar connections and scheduled bots. Migrations run on boot. Round-trip tested against Postgres 16. In-memory fallback when `DATABASE_URL` is unset. |
-| Fireflies | Import existing transcripts with rep attribution. |
+| Meeting bot | Recall.ai create bot (immediate or scheduled), transcript and lifecycle webhooks, named-participant attribution, call closed out on bot leaving. |
+| Calendar auto-join | Microsoft 365 and Google OAuth with refresh, 5-minute scheduler, external-only filter, idempotent booking, per-connection bot name, 24-hour preview. |
+| Coach brain | Playbook plus knowledge base in a cached system prompt, question answering, discovery tracker, call chat, post-call summary. Claude native; OpenAI-compatible adapter for OpenAI, Grok, Gemini, Qwen, DeepSeek, Mistral, Groq, OpenRouter, Ollama, custom. |
+| Accounts | Email and password, scrypt, JWT cookie, email verification, password reset, invitations with roles (rep, manager, admin), API keys shown once and stored hashed. Reps see their own calls; managers and admins see the org. |
+| Billing | Stripe Checkout per seat, customer portal, signed webhooks that set plan and seats. Trial: five free calls. Seat count enforced on invitations. |
+| Quotas and rate limits | Per-plan limits on bots per day, coach lines per minute, chat messages per minute. Daily usage counters per org. Redis-shared limits when scaled out. |
+| CRM | Salesforce (Connected App OAuth, Task of type Call on the matching Contact or Lead) and HubSpot (OAuth, Call engagement on the Contact). Auto-push after every summary, manual push per call, record id stored on the call. |
+| Persistence | Postgres through Drizzle for everything: orgs, users, tokens, API keys, calls, knowledge, playbooks, calendar and CRM connections, scheduled bots, usage. Migrations run on boot. |
+| Secrets at rest | Calendar and CRM tokens encrypted with AES-256-GCM under `ENCRYPTION_KEY`. Legacy plaintext rows still read. |
+| Data controls | Export the whole organisation as JSON. Delete one call. Delete the organisation and everything in it. Per-org retention window with a nightly purge. |
+| Consent | Per-org disclosure setting. Default posts a notice in the meeting chat the moment the bot is in the call. |
+| Observability | Prometheus metrics at `/metrics` (live calls, coach calls, bots booked, disclosures, errors, job heartbeats). `/health` returns 503 with the job name when auto-join or retention stops running. Unhandled errors go to `ERROR_WEBHOOK_URL` (Slack or any JSON sink). |
+| Scale-out | Redis event bus: watchers on any instance see any call; a webhook that lands on the wrong instance is forwarded to the owner. Tested with two live instances against Redis. |
+| Email | Resend over REST. Console fallback prints the links in development. |
 | Deploy | Dockerfile, Fly config, Vercel config. Web is live on Vercel. |
 
-## Missing, in the order it matters for your own calls
+Tests: 23 in core, 39 in the API (Postgres and Redis suites included), all passing in CI with service containers.
 
-1. **The API is not deployed.** The website on Vercel points at `https://api.thecloser.ai`, which does not exist yet. Until the API runs somewhere public, sign-in and calls fail. One command on Fly (`docs/DEPLOY.md`), plus a Postgres (`fly postgres create` or Neon) and `DATABASE_URL`.
-2. **Vendor keys.** Anthropic (or another provider), Recall.ai, and an Entra app registration for Microsoft calendar access. Without Recall there is no bot. Without the Entra app there is no auto-join and you paste links instead.
-3. **Recall webhook signature.** `RECALL_WEBHOOK_SECRET` is supported but optional. Set it in production or anyone who finds the URL can inject transcript.
-4. **No end-to-end run against the real vendors has happened.** Every integration is written to the documented wire formats and tested against fakes. The first real call will surface small mismatches (a field name, a status code). Budget an afternoon with the logs open.
+## Needs your hands, in order
 
-## Missing before paying customers
+1. **Deploy the API.** `docs/DEPLOY.md`, section 2. Fly plus a Postgres plus a Redis if you run more than one instance. Then set `NEXT_PUBLIC_API_URL` on the Vercel project and redeploy.
+2. **Keys.** Anthropic (or another provider), Recall.ai, `ENCRYPTION_KEY`, `JWT_SECRET`. Then, as you need them: Entra app for Microsoft calendar, Google OAuth client, Stripe keys and two prices, Resend key, Salesforce Connected App, HubSpot public app. Every variable is in `.env.example` with the callback URL it needs.
+3. **Vercel protection.** Vercel, the-closer, Settings, Deployment Protection, Vercel Authentication off. The connector cannot change project settings.
+4. **First real call.** Everything is written to the documented wire formats and tested against fakes. Budget an afternoon with the logs open for the first live Recall and Stripe events.
 
-- **Billing.** No Stripe. Plans in the pricing table are copy, not enforcement.
-- **Rate limits and quotas.** Nothing stops one tenant from burning the model budget.
-- **Password reset, email verification, invitations, roles.** Single-user orgs only. A manager cannot see a rep's calls.
-- **API keys table.** Schema exists; the route to mint and revoke keys does not. The desktop app uses the JWT or the dev key.
-- **CRM sync.** Salesforce adapter exists; nothing calls it. No HubSpot. No OAuth for either.
-- **Observability.** Pino logs only. No error tracker, no metrics, no alert when the scheduler stops booking bots.
-- **Token encryption at rest.** Calendar access and refresh tokens are stored in plain columns. Encrypt with a KMS key before any customer connects a calendar.
-- **Data retention and deletion.** No way for a tenant to delete a call or export their data. GDPR needs both.
-- **Consent.** Recording disclosure is a bot-name convention, not a product control. Decide and enforce.
-- **Load.** One process, one hub in memory. Multiple API instances need the hub in Redis or sticky sessions. Fine for you and a team of ten; not fine for a thousand seats.
+## Known limits, by design for now
 
-## How auto-join works, step by step
-
-1. In the web app, Auto-join, Connect Microsoft 365. You consent to `Calendars.Read`. We store the refresh token against your user.
-2. Every five minutes the scheduler reads your next 20 minutes of calendar. For each meeting that is not cancelled, has a Teams, Zoom, Meet or Webex link, and (by default) has at least one attendee outside your email domain, it asks Recall for a bot with `join_at` one minute before the start.
-3. The bot joins under your configured name. Recall posts transcript and status to the API. The call page at `/app/calls/<id>` is live from the moment the bot is booked, so you can open it before the meeting and have it on a second screen.
-4. When the bot leaves, the call is frozen to Postgres, the summary runs, and the record is in your call list.
-
-The settings page shows the next 24 hours with "will join", "bot booked", or the reason it will not join.
+- One Recall bot per meeting per org. Two reps on the same external call each get their own bot unless one of them turns auto-join off for it.
+- Prospect email for CRM matching comes from the calendar attendee list. Calls started by pasting a link have no email, so the CRM record is created unlinked; the note still lands.
+- The Teams side panel still uses an API key; the JWT works too. SSO (Microsoft or Google sign-in) is not built; email and password only.
+- Usage is counted, not billed by usage. Plans are flat per seat.

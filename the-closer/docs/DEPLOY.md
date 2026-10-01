@@ -34,8 +34,20 @@ Google: Google Cloud console, APIs and Services, enable Google Calendar API, OAu
 
 Set `WEB_URL=https://the-closer-five.vercel.app` (or your domain) so the browser lands back on the settings page.
 
+## 2c. Everything else, when you want it
+
+| Feature | Variables | Where to get them |
+|---|---|---|
+| Encryption of stored tokens | `ENCRYPTION_KEY` | `openssl rand -hex 32`. Set before the first calendar or CRM connection. |
+| Email (verification, reset, invites) | `RESEND_API_KEY`, `MAIL_FROM` | resend.com, verify your sending domain. Without it links print to the API log. |
+| Billing | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_SOLO`, `STRIPE_PRICE_TEAM` | Stripe, two recurring per-seat prices; webhook endpoint `{PUBLIC_URL}/v1/webhooks/stripe` with events `checkout.session.completed`, `customer.subscription.*`. |
+| Salesforce | `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET` | Setup, App Manager, New Connected App, OAuth enabled, callback `{PUBLIC_URL}/v1/integrations/crm/salesforce/callback`, scopes api, refresh_token, offline_access. |
+| HubSpot | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` | developers.hubspot.com, public app, redirect `{PUBLIC_URL}/v1/integrations/crm/hubspot/callback`, scopes crm.objects.contacts.read/write. |
+| Errors | `ERROR_WEBHOOK_URL` | A Slack incoming webhook is enough to start. |
+| More than one API instance | `REDIS_URL` | Upstash or Fly Redis. Also shares rate limits. |
+
 ## 3. Before real customers
 
 - Set `DATABASE_URL`. Migrations run on boot. Without it the API uses in-memory stores and forgets everything on restart.
-- Set a Recall webhook secret (`RECALL_WEBHOOK_SECRET`) so only Recall can post transcripts.
-- Decide the recording disclosure policy and bake it into the bot name default.
+- Set `RECALL_WEBHOOK_SECRET` so only Recall can post transcripts, and `ENCRYPTION_KEY` before anyone connects a calendar or CRM.
+- The disclosure default posts a notice in the meeting chat. Admins can change it under Billing; the choice is theirs and logged.

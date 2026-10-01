@@ -108,7 +108,7 @@ cd the-closer
 cp .env.example .env            # add ANTHROPIC_API_KEY; RECALL_API_KEY for the bot; DEEPGRAM_API_KEY only for desktop audio
 pnpm install
 pnpm --filter @closer/core build
-pnpm test                       # 46 tests; Postgres store tests run when TEST_DATABASE_URL is set
+pnpm test                       # 62 tests; Postgres and Redis suites run when TEST_DATABASE_URL / TEST_REDIS_URL are set
 pnpm dev:api                    # API on :8787
 pnpm --filter @closer/web dev   # website on :3000
 pnpm dev:desktop                # optional: overlay window
@@ -168,7 +168,7 @@ Be clear-eyed about these before selling it.
 - **The bot path needs a public HTTPS URL** for Recall's webhooks, so local development uses a tunnel.
 - **Answers are only as good as the knowledge base.** Load the price list, capability statement and FAQs before the first call. The coach is told never to invent a number, and the fix for a wrong holding line is a better document, not a prompt tweak.
 - **The keyword objection detector is a wake-up heuristic, not the classifier.** It decides priority. Claude decides what is actually happening.
-- **No auth beyond a dev key, no billing, no dashboard.** The schema and the API key table are there; the Clerk or Auth0 flow, Stripe metering and the manager dashboard are the next sprint.
+- **Not built: SSO sign-in and usage-based billing.** Accounts are email and password with verification, reset, invitations and roles; plans are flat per seat through Stripe. The rest of the platform list (CRM sync, quotas, encryption at rest, retention, export and delete, metrics, multi-instance) is in and tested; see `docs/BACKEND-STATUS.md`.
 
 ## Roadmap to a sellable product
 

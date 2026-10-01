@@ -6,6 +6,15 @@
 export class RecallClient {
   constructor(private readonly opts: { apiKey: string; region: string; webhookUrl: string; fetchImpl?: typeof fetch }) {}
 
+  /** Posts a message in the meeting chat as the bot. Used for the recording disclosure. */
+  async sendChatMessage(botId: string, message: string): Promise<void> {
+    const f = this.opts.fetchImpl ?? fetch;
+    const res = await f(`https://${this.opts.region}.recall.ai/api/v1/bot/${botId}/send_chat_message/`, {
+      method: "POST", headers: { Authorization: `Token ${this.opts.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ message }),
+    });
+    if (!res.ok) throw new Error(`Recall chat ${res.status}: ${await res.text()}`);
+  }
+
   async createBot(input: { meetingUrl: string; callId: string; repName: string; botName?: string; joinAt?: number }): Promise<{ botId: string }> {
     const f = this.opts.fetchImpl ?? fetch;
     const res = await f(`https://${this.opts.region}.recall.ai/api/v1/bot/`, {

@@ -3,7 +3,15 @@ import { bigint, boolean, index, integer, jsonb, pgTable, real, text, timestamp,
 export const orgs = pgTable("orgs", {
   id: uuid("id").primaryKey(),
   name: text("name").notNull(),
-  plan: text("plan").notNull().default("trial"),
+  plan: text("plan").notNull().default("trial"), // trial | solo | team | enterprise
+  seats: integer("seats").notNull().default(1),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  /** Calls older than this are purged by the nightly job. 0 = keep forever. */
+  retentionDays: integer("retention_days").notNull().default(0),
+  /** How the bot discloses itself: chat_message (posts a notice in the meeting chat), name_only, off. */
+  disclosure: text("disclosure").notNull().default("chat_message"),
+  trialCallsUsed: integer("trial_calls_used").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -13,10 +21,45 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   company: text("company").notNull(),
-  role: text("role").notNull().default("rep"),
+  role: text("role").notNull().default("rep"), // rep | manager | admin
   passwordHash: text("password_hash").notNull(),
+  emailVerifiedAt: bigint("email_verified_at", { mode: "number" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** One-time tokens for email verification, password reset and invitations. Only the hash is stored. */
+export const authTokens = pgTable("auth_tokens", {
+  id: uuid("id").primaryKey(),
+  orgId: uuid("org_id").notNull().references(() => orgs.id),
+  userId: uuid("user_id"),
+  email: text("email").notNull(),
+  kind: text("kind").notNull(), // verify | reset | invite
+  role: text("role"),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  usedAt: bigint("used_at", { mode: "number" }),
+});
+
+/** Salesforce or HubSpot connection for an org. Tokens are encrypted at rest. */
+export const crmConnections = pgTable("crm_connections", {
+  id: uuid("id").primaryKey(),
+  orgId: uuid("org_id").notNull().references(() => orgs.id),
+  provider: text("provider").notNull(), // salesforce | hubspot
+  instanceUrl: text("instance_url"),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  autoPush: boolean("auto_push").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("crm_org_provider_idx").on(t.orgId, t.provider)]);
+
+/** Daily usage counters per org, for quotas and metered billing. */
+export const usage = pgTable("usage", {
+  orgId: uuid("org_id").notNull().references(() => orgs.id),
+  day: text("day").notNull(), // YYYY-MM-DD UTC
+  metric: text("metric").notNull(), // coach_calls | chat_turns | bots | summaries
+  count: integer("count").notNull().default(0),
+}, (t) => [uniqueIndex("usage_pk").on(t.orgId, t.day, t.metric)]);
 
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -48,6 +91,8 @@ export const knowledge = pgTable("knowledge", {
 export const calls = pgTable("calls", {
   id: text("id").primaryKey(),
   orgId: uuid("org_id").notNull().references(() => orgs.id),
+  userId: uuid("user_id"),
+  crmRecordId: text("crm_record_id"),
   title: text("title").notNull(),
   source: text("source").notNull(),
   externalId: text("external_id"),

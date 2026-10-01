@@ -92,6 +92,12 @@ export default function CallPage({ params }: { params: Promise<{ id: string }> }
             <Transcript segments={transcript} />
             {typeof ratio === "number" && <div><div className="small muted">You {Math.round(ratio * 100)}% of the talking</div><div className="talk"><div style={{ width: `${Math.round(ratio * 100)}%`, background: ratio > 0.65 ? "var(--bad)" : ratio > 0.55 ? "var(--warn)" : "var(--grad)" }} /></div></div>}
             {!isLive && rec && (rec.summary ? <SummaryView summary={rec.summary} /> : <button className="primary" onClick={summarise} disabled={summarising || rec.transcript.length === 0}>{summarising ? "Summarising…" : "Summarise this call"}</button>)}
+            {!isLive && rec && (
+              <div className="row">
+                {rec.summary && <button onClick={async () => { try { const r = await api.pushCrm(id); setErr(null); alert(`Logged to ${r.pushed.map((x) => x.provider).join(", ")}`); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } }}>Push to CRM</button>}
+                <button className="ghost" onClick={async () => { if (confirm("Delete this call and its transcript?")) { await api.deleteCall(id); window.location.href = "/app"; } }}>Delete call</button>
+              </div>
+            )}
           </div>
           <div className="col">
             <Card card={card} />

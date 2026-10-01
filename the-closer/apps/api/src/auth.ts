@@ -8,6 +8,9 @@ export interface Principal {
   name: string;
   company: string;
   email?: string;
+  role: "rep" | "manager" | "admin";
+  /** Set when the request authenticated with an API key rather than a session. */
+  apiKeyId?: string;
 }
 
 export interface AuthResolver {
@@ -23,7 +26,7 @@ export class DevAuth implements AuthResolver {
   constructor(private readonly devKey: string | undefined) {}
   async resolve(token: string): Promise<Principal | null> {
     if (!this.devKey || token !== this.devKey) return null;
-    return { orgId: "dev-org", userId: "dev-user", name: "Rep", company: "Your company" };
+    return { orgId: "dev-org", userId: "dev-user", name: "Rep", company: "Your company", role: "admin" };
   }
 }
 
@@ -33,7 +36,9 @@ export interface UserRecord {
   email: string;
   name: string;
   company: string;
+  role: "rep" | "manager" | "admin";
   passwordHash: string; // salt:hex
+  emailVerifiedAt?: number;
   createdAt: number;
 }
 
@@ -44,7 +49,7 @@ export interface UserStore {
 }
 
 export class MemoryUserStore implements UserStore {
-  private readonly byId = new Map<string, UserRecord>();
+  readonly byId = new Map<string, UserRecord>();
   async findByEmail(email: string) { return [...this.byId.values()].find((u) => u.email === email.toLowerCase()) ?? null; }
   async findById(id: string) { return this.byId.get(id) ?? null; }
   async create(u: UserRecord) { this.byId.set(u.id, u); }
@@ -76,14 +81,26 @@ export class JwtAuth implements AuthResolver {
       const { payload } = await jwtVerify(token, this.key);
       const user = payload.sub ? await this.users.findById(payload.sub) : null;
       if (!user) return null;
-      return { orgId: user.orgId, userId: user.id, name: user.name, company: user.company, email: user.email };
+      return { orgId: user.orgId, userId: user.id, name: user.name, company: user.company, email: user.email, role: user.role };
     } catch {
       return null;
     }
   }
 }
 
-/** Tries each resolver in order: dev key, then JWT. */
+/** API keys minted in the app: "ck_" + 40 random chars, stored hashed. */
+export class ApiKeyAuth implements AuthResolver {
+  constructor(private readonly find: (hash: string) => Promise<{ orgId: string; userId?: string; revokedAt?: number } | null>, private readonly users: UserStore) {}
+  async resolve(token: string): Promise<Principal | null> {
+    if (!token.startsWith("ck_")) return null;
+    const rec = await this.find(hashKey(token));
+    if (!rec || rec.revokedAt) return null;
+    const user = rec.userId ? await this.users.findById(rec.userId) : null;
+    return { orgId: rec.orgId, userId: user?.id ?? "api", name: user?.name ?? "API", company: user?.company ?? "", email: user?.email, role: user?.role ?? "admin", apiKeyId: token.slice(0, 10) };
+  }
+}
+
+/** Tries each resolver in order: dev key, API key, then JWT. */
 export class CompositeAuth implements AuthResolver {
   constructor(private readonly resolvers: AuthResolver[]) {}
   async resolve(token: string): Promise<Principal | null> {
