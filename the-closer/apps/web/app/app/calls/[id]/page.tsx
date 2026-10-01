@@ -12,7 +12,7 @@ function Card({ card }: { card: LiveCard | null }) {
   if (!card) return <div className="card"><div className="kicker">Listening</div><div className="script muted" style={{ fontSize: 15 }}>Your next line appears here as soon as the prospect finishes a thought.</div></div>;
   return (
     <div className={`card ${card.type ?? "say_this"}`}>
-      <div className="kicker"><span>{LABEL[card.type ?? "say_this"]}</span>{card.stage && <span style={{ marginLeft: "auto" }}>{card.stage.replace("_", " ")}</span>}{card.streaming && <span style={{ color: "var(--accent)" }}>thinking…</span>}</div>
+      <div className="kicker"><span>{LABEL[card.type ?? "say_this"]}</span>{card.stage && <span style={{ marginLeft: "auto" }}>{card.stage.replace("_", " ")}</span>}{card.streaming && <span style={{ color: "var(--violet-2)" }}>thinking…</span>}</div>
       {card.headline && <div className="headline">{card.headline}</div>}
       <div className="script">{card.script || (card.streaming ? "…" : "")}</div>
       {card.rationale && <div className="why">{card.rationale}</div>}
@@ -90,7 +90,7 @@ export default function CallPage({ params }: { params: Promise<{ id: string }> }
             {err && <div className="err">{err}</div>}
             {live.state.error && <div className="err">{live.state.error}</div>}
             <Transcript segments={transcript} />
-            {typeof ratio === "number" && <div><div className="small muted">You {Math.round(ratio * 100)}% of the talking</div><div className="talk"><div style={{ width: `${Math.round(ratio * 100)}%`, background: ratio > 0.65 ? "var(--bad)" : ratio > 0.55 ? "var(--warn)" : "var(--good)" }} /></div></div>}
+            {typeof ratio === "number" && <div><div className="small muted">You {Math.round(ratio * 100)}% of the talking</div><div className="talk"><div style={{ width: `${Math.round(ratio * 100)}%`, background: ratio > 0.65 ? "var(--bad)" : ratio > 0.55 ? "var(--warn)" : "var(--grad)" }} /></div></div>}
             {!isLive && rec && (rec.summary ? <SummaryView summary={rec.summary} /> : <button className="primary" onClick={summarise} disabled={summarising || rec.transcript.length === 0}>{summarising ? "Summarising…" : "Summarise this call"}</button>)}
           </div>
           <div className="col">

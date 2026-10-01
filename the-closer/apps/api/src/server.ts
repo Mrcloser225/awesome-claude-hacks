@@ -1,8 +1,7 @@
 import { loadConfig } from "./config.js";
 import { buildApp } from "./app.js";
-import { AnthropicChatModel } from "./coach/call-chat.js";
-import { AnthropicCoachModel } from "./coach/anthropic-model.js";
-import { AnthropicInsightModel } from "./coach/anthropic-insight-model.js";
+import { createModels } from "./llm/factory.js";
+import { resolveProvider } from "./llm/providers.js";
 import { summariseCall } from "./coach/summary.js";
 import { TranscriptStore } from "@closer/core";
 import { DeepgramLive } from "./stt/deepgram.js";
@@ -10,8 +9,12 @@ import { NoopStt } from "./stt/none.js";
 import { RecallClient } from "./recall-client.js";
 
 const cfg = loadConfig();
+const provider = resolveProvider(process.env);
+const models = createModels(provider, { effort: cfg.coachEffort, webSearch: cfg.coachWebSearch, insightModel: cfg.insightModel, chatModel: cfg.chatModel });
+console.log(`Models: ${models.label}`);
 
-if (!cfg.anthropicApiKey) console.warn("ANTHROPIC_API_KEY not set; relying on ant auth profile or env token");
+if (provider.provider === "anthropic" && !provider.apiKey) console.warn("ANTHROPIC_API_KEY not set; relying on ant auth profile or env token");
+if (provider.provider !== "anthropic" && !provider.apiKey && provider.provider !== "ollama") console.warn(`LLM_PROVIDER=${provider.provider} but no API key found; set LLM_API_KEY`);
 if (!cfg.deepgramApiKey) console.warn("DEEPGRAM_API_KEY not set; desktop audio streaming disabled, bot path and transcript.push still work");
 if (!cfg.recallApiKey) console.warn("RECALL_API_KEY not set; POST /v1/bots will return 501");
 
@@ -25,9 +28,9 @@ const { app, calls } = await buildApp({
   jwtSecret: cfg.jwtSecret,
   secureCookies: cfg.secureCookies,
   makeStt: () => (cfg.deepgramApiKey ? new DeepgramLive(cfg.deepgramApiKey) : new NoopStt()),
-  model: new AnthropicCoachModel({ apiKey: cfg.anthropicApiKey, model: cfg.coachModel, effort: cfg.coachEffort, webSearch: cfg.coachWebSearch }),
-  insightModel: new AnthropicInsightModel({ apiKey: cfg.anthropicApiKey, model: cfg.insightModel }),
-  chatModel: new AnthropicChatModel({ apiKey: cfg.anthropicApiKey, model: cfg.chatModel }),
+  model: models.coach,
+  insightModel: models.insight,
+  chatModel: models.chat,
   summarise: async (rec) => {
     const store = new TranscriptStore({ maxSegments: 100_000 });
     for (const seg of rec.transcript) store.upsert(seg);

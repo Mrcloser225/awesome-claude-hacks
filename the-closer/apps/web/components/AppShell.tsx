@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, setToken, type User } from "@/lib/api";
+import { Brand } from "./Brand";
 
 export function AppShell({ children }: { children: (user: User) => React.ReactNode }) {
   const router = useRouter();
@@ -16,7 +17,7 @@ export function AppShell({ children }: { children: (user: User) => React.ReactNo
   return (
     <>
       <nav className="nav">
-        <Link href="/app" className="brand">The Closer</Link>
+        <Brand href="/app" />
         <Link href="/app" className={path === "/app" ? "on" : ""}>Calls</Link>
         <Link href="/app/knowledge" className={path.startsWith("/app/knowledge") ? "on" : ""}>Knowledge</Link>
         <span className="spacer" />

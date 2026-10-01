@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { KnowledgeDoc, Playbook } from "@closer/core";
+import { listProviders } from "../llm/providers.js";
 import { z } from "zod";
 import { extractToken, type AuthResolver, type Principal } from "../auth.js";
 
@@ -48,6 +49,8 @@ export function registerRestRoutes(app: FastifyInstance, deps: RestDeps): void {
   });
 
   app.get("/health", async () => ({ ok: true, service: "the-closer-api" }));
+  /** Which model providers this build can run on. Public, no keys. */
+  app.get("/providers", async () => listProviders());
 
   // ---- Playbooks ----
   app.get("/v1/playbooks", async (req) => deps.listPlaybooks((req as unknown as Authed).principal.orgId));

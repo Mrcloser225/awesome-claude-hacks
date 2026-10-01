@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, setToken } from "@/lib/api";
+import { Brand } from "./Brand";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -20,7 +21,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   };
   return (
     <main className="container" style={{ maxWidth: 440, paddingTop: 80 }}>
-      <Link href="/" className="brand" style={{ color: "var(--accent)", fontWeight: 800 }}>The Closer</Link>
+      <div className="nav" style={{ border: 0, background: "transparent", padding: 0 }}><Brand /></div>
       <h1 style={{ marginTop: 20 }}>{mode === "signup" ? "Create your account" : "Sign in"}</h1>
       <form onSubmit={submit} className="stack panel">
         {mode === "signup" && <>
@@ -32,7 +33,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         {err && <div className="err">{err}</div>}
         <button className="primary" disabled={busy}>{busy ? "One moment" : mode === "signup" ? "Start free" : "Sign in"}</button>
         <p className="small muted" style={{ margin: 0 }}>
-          {mode === "signup" ? <>Already have an account? <Link href="/login" style={{ color: "var(--accent)" }}>Sign in</Link></> : <>New here? <Link href="/signup" style={{ color: "var(--accent)" }}>Create an account</Link></>}
+          {mode === "signup" ? <>Already have an account? <Link href="/login" style={{ color: "var(--violet-2)" }}>Sign in</Link></> : <>New here? <Link href="/signup" style={{ color: "var(--violet-2)" }}>Create an account</Link></>}
         </p>
       </form>
     </main>

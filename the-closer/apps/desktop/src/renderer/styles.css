@@ -1,10 +1,10 @@
 :root {
-  --bg: rgba(16, 20, 28, 0.86);
+  --bg: rgba(9, 9, 11, 0.88);
   --panel: rgba(255, 255, 255, 0.05);
   --fg: #eef1f5;
   --muted: #98a2b3;
-  --accent: #c9a63c;
-  --navy: #1c2b4a;
+  --accent: #a78bfa;
+  --navy: #6366f1;
   --good: #3ecf8e;
   --warn: #f2b134;
   --bad: #ff5d5d;

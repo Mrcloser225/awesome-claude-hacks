@@ -15,7 +15,7 @@
     "full": "The Closer listens to the meeting through a notetaker bot and shows you, privately in this side panel, the next line to say, answers to what the prospect just asked, and the discovery questions you still need to cover."
   },
   "icons": { "color": "color.png", "outline": "outline.png" },
-  "accentColor": "#1C2B4A",
+  "accentColor": "#7C3AED",
   "configurableTabs": [
     {
       "configurationUrl": "https://REPLACE-WITH-PANEL-HOST/index.html",
