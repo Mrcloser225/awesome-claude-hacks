@@ -116,7 +116,7 @@ export default function Landing() {
       </section>
       <footer>
         <span className="brand">The Closer</span>
-        <span>Built by Glaxtons Consulting, 3 More London Place, London SE1 2RE</span>
+        <span>TheCloser.ai</span>
         <span>hello@thecloser.ai</span>
       </footer>
     </main>
