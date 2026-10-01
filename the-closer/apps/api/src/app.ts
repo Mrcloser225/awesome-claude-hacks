@@ -1,8 +1,12 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
-import { GLAXTONS_PLAYBOOK, type CallContext, type CoachModel, type InsightModel, type KnowledgeDoc, type Playbook, type ServerMessage } from "@closer/core";
+import { GLAXTONS_PLAYBOOK, type CallContext, type CoachModel, type InsightModel, type Playbook, type ServerMessage } from "@closer/core";
 import { CompositeAuth, DevAuth, JwtAuth, MemoryUserStore, type AuthResolver, type UserStore } from "./auth.js";
+import { AutoJoinScheduler } from "./autojoin/scheduler.js";
+import { MemoryCalendarStore, type CalendarProvider, type CalendarProviderId, type CalendarStore } from "./autojoin/types.js";
+import { registerCalendarRoutes } from "./routes/calendar.js";
+import { MemoryKnowledgeStore, MemoryPlaybookStore, type KnowledgeStore, type PlaybookStore } from "./stores.js";
 import type { ChatModel } from "./coach/call-chat.js";
 import type { CallSummary } from "./coach/summary.js";
 import type { FirefliesClient } from "./integrations/fireflies.js";
@@ -23,15 +27,20 @@ export interface AppDeps {
   jwtSecret?: string;
   users?: UserStore;
   calls?: CallStore;
+  knowledge?: KnowledgeStore;
+  playbooks?: PlaybookStore;
+  calendars?: CalendarStore;
+  calendarProviders?: Partial<Record<CalendarProviderId, CalendarProvider>>;
+  /** Public URL of the web app, for OAuth redirects back to the settings page. */
+  webUrl?: string;
+  autoJoinIntervalMs?: number;
   makeStt: SttFactory;
   model: CoachModel;
   chatModel?: ChatModel;
   insightModel?: InsightModel;
   summarise?: (rec: CallRecord) => Promise<CallSummary>;
-  playbooks?: Map<string, Playbook>;
-  knowledge?: Map<string, KnowledgeDoc>;
   recallWebhookSecret?: string;
-  createBot?: (input: { meetingUrl: string; callId: string; repName: string; botName?: string }) => Promise<{ botId: string }>;
+  createBot?: (input: { meetingUrl: string; callId: string; repName: string; botName?: string; joinAt?: number }) => Promise<{ botId: string }>;
   firefliesClient?: (apiKey: string) => FirefliesClient;
   onCallEnded?: (session: LiveSession, record: CallRecord | null) => Promise<void> | void;
   secureCookies?: boolean;
@@ -43,7 +52,7 @@ export interface AppDeps {
  * full pipeline with fake STT and fake models. In-memory stores by default;
  * the Drizzle-backed versions implement the same interfaces.
  */
-export async function buildApp(deps: AppDeps): Promise<{ app: FastifyInstance; hub: SessionHub; calls: CallStore; auth: AuthResolver }> {
+export async function buildApp(deps: AppDeps): Promise<{ app: FastifyInstance; hub: SessionHub; calls: CallStore; auth: AuthResolver; scheduler: AutoJoinScheduler }> {
   const app = Fastify({ logger: deps.logger ?? false });
   await app.register(cors, { origin: true, credentials: true });
   await app.register(websocket, { options: { maxPayload: 1 << 20 } });
@@ -53,19 +62,21 @@ export async function buildApp(deps: AppDeps): Promise<{ app: FastifyInstance; h
   const jwt = new JwtAuth(deps.jwtSecret ?? "dev-only-secret-change-me", users);
   const auth = new CompositeAuth([new DevAuth(deps.devApiKey), jwt]);
 
-  const playbooks = deps.playbooks ?? new Map<string, Playbook>([[GLAXTONS_PLAYBOOK.id, GLAXTONS_PLAYBOOK]]);
-  const knowledge = deps.knowledge ?? new Map<string, KnowledgeDoc>();
+  const playbooks = deps.playbooks ?? new MemoryPlaybookStore(GLAXTONS_PLAYBOOK);
+  const knowledge = deps.knowledge ?? new MemoryKnowledgeStore();
+  const calendars = deps.calendars ?? new MemoryCalendarStore();
   const hub = new SessionHub();
 
-  const resolvePlaybook = (id?: string): Playbook => (id && playbooks.get(id)) || [...playbooks.values()][0] || GLAXTONS_PLAYBOOK;
+  const resolvePlaybook = async (orgId: string, id?: string): Promise<Playbook> =>
+    (id && (await playbooks.get(orgId, id))) || (await playbooks.list(orgId))[0] || GLAXTONS_PLAYBOOK;
 
-  const createSession = async (ctx: CallContext, send: (m: ServerMessage) => void, opts: { audio: boolean }) =>
+  const createSession = async (orgId: string, ctx: CallContext, send: (m: ServerMessage) => void, opts: { audio: boolean }) =>
     new LiveSession(ctx, {
       stt: opts.audio ? deps.makeStt() : new NoopStt(),
       model: deps.model,
       insightModel: deps.insightModel,
-      playbook: resolvePlaybook(ctx.playbookId),
-      knowledge: [...knowledge.values()],
+      playbook: await resolvePlaybook(orgId, ctx.playbookId),
+      knowledge: await knowledge.list(orgId),
       send,
       log: app.log,
     });
@@ -91,29 +102,51 @@ export async function buildApp(deps: AppDeps): Promise<{ app: FastifyInstance; h
 
   registerRestRoutes(app, {
     auth,
-    listPlaybooks: async () => [...playbooks.values()],
-    savePlaybook: async (_org, pb) => { playbooks.set(pb.id, pb); return pb; },
-    listKnowledge: async () => [...knowledge.values()],
-    saveKnowledge: async (_org, doc) => { knowledge.set(doc.id, doc); return doc; },
-    deleteKnowledge: async (_org, id) => { knowledge.delete(id); },
+    listPlaybooks: (org) => playbooks.list(org),
+    savePlaybook: (org, pb) => playbooks.save(org, pb),
+    listKnowledge: (org) => knowledge.list(org),
+    saveKnowledge: (org, doc) => knowledge.save(org, doc),
+    deleteKnowledge: (org, id) => knowledge.delete(org, id),
   });
 
   registerCallRoutes(app, {
     hub,
     calls,
     chat: deps.chatModel ?? { async *stream() { throw new Error("chat model not configured"); } },
-    playbookFor: (_org, id) => resolvePlaybook(id),
-    knowledgeFor: () => [...knowledge.values()],
+    playbookFor: resolvePlaybook,
+    knowledgeFor: (org) => knowledge.list(org),
     summarise: deps.summarise,
     createBot: deps.createBot,
-    createSession: (ctx, send) => createSession(ctx, send, { audio: false }),
+    createSession: (org, ctx, send) => createSession(org, ctx, send, { audio: false }),
     firefliesClient: deps.firefliesClient,
   });
+
+  // Fireflies-style auto-join from connected calendars.
+  const scheduler = new AutoJoinScheduler({
+    store: calendars,
+    providers: deps.calendarProviders ?? {},
+    userFor: async (userId) => { const u = await users.findById(userId); return u ? { name: u.name, company: u.company, email: u.email } : null; },
+    startBot: async ({ orgId, context, meetingUrl, botName, joinAt, title }) => {
+      if (!deps.createBot) throw new Error("meeting bot provider not configured");
+      const session = await createSession(orgId, context, hub.broadcaster(context.callId), { audio: false });
+      const bot = await deps.createBot({ meetingUrl, callId: context.callId, repName: context.rep.name, botName, joinAt });
+      hub.register(session, { botId: bot.botId, orgId });
+      await calls.upsert({ id: context.callId, orgId, title, source: "bot", context, startedAt: joinAt, endedAt: null, transcript: [], events: [], insight: null, summary: null });
+      await session.start();
+      return bot;
+    },
+    log: app.log,
+  });
+  registerCalendarRoutes(app, { store: calendars, providers: deps.calendarProviders ?? {}, scheduler, stateSecret: deps.jwtSecret ?? "dev-only-secret-change-me", webUrl: deps.webUrl ?? "http://localhost:3000" });
+  if (deps.calendarProviders && Object.keys(deps.calendarProviders).length > 0) {
+    app.addHook("onReady", async () => scheduler.start(deps.autoJoinIntervalMs ?? 5 * 60_000));
+    app.addHook("onClose", async () => scheduler.stop());
+  }
 
   registerLiveRoute(app, {
     auth,
     hub,
-    createSession: (ctx, send) => createSession(ctx, send, { audio: true }),
+    createSession: (org, ctx, send) => createSession(org, ctx, send, { audio: true }),
     onCallStarted: async (s, orgId) => {
       await calls.upsert({ id: s.ctx.callId, orgId, title: s.ctx.prospect?.company ? `Call with ${s.ctx.prospect.company}` : "Live call", source: "desktop", context: s.ctx, startedAt: s.startedAt, endedAt: null, transcript: [], events: [], insight: null, summary: null });
     },
@@ -122,5 +155,5 @@ export async function buildApp(deps: AppDeps): Promise<{ app: FastifyInstance; h
 
   registerRecallRoute(app, { webhookSecret: deps.recallWebhookSecret, hub, onCallEnded });
 
-  return { app, hub, calls, auth };
+  return { app, hub, calls, auth, scheduler };
 }

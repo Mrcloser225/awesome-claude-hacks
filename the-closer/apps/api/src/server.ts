@@ -7,6 +7,12 @@ import { TranscriptStore } from "@closer/core";
 import { DeepgramLive } from "./stt/deepgram.js";
 import { NoopStt } from "./stt/none.js";
 import { RecallClient } from "./recall-client.js";
+import { createDb, runMigrations } from "./db/client.js";
+import { PgCalendarStore, PgCallStore, PgKnowledgeStore, PgPlaybookStore, PgUserStore } from "./db/stores.js";
+import { MicrosoftCalendar } from "./autojoin/microsoft.js";
+import { GoogleCalendar } from "./autojoin/google.js";
+import type { CalendarProvider, CalendarProviderId } from "./autojoin/types.js";
+import { GLAXTONS_PLAYBOOK } from "@closer/core";
 
 const cfg = loadConfig();
 const provider = resolveProvider(process.env);
@@ -23,7 +29,26 @@ const recall = cfg.recallApiKey
   ? new RecallClient({ apiKey: cfg.recallApiKey, region: cfg.recallRegion, webhookUrl: `${publicUrl}/v1/webhooks/recall` })
   : undefined;
 
+// Persistence: Postgres when DATABASE_URL is set, otherwise in-memory (development only).
+let stores: Partial<Parameters<typeof buildApp>[0]> = {};
+if (cfg.databaseUrl) {
+  await runMigrations(cfg.databaseUrl);
+  const { db } = createDb(cfg.databaseUrl);
+  stores = { users: new PgUserStore(db), calls: new PgCallStore(db), knowledge: new PgKnowledgeStore(db), playbooks: new PgPlaybookStore(db, GLAXTONS_PLAYBOOK), calendars: new PgCalendarStore(db) };
+  console.log("Persistence: Postgres");
+} else {
+  console.warn("DATABASE_URL not set; using in-memory stores. Everything is forgotten on restart.");
+}
+
+const calendarProviders: Partial<Record<CalendarProviderId, CalendarProvider>> = {};
+if (cfg.msClientId && cfg.msClientSecret) calendarProviders.microsoft = new MicrosoftCalendar({ clientId: cfg.msClientId, clientSecret: cfg.msClientSecret, tenant: cfg.msTenant, redirectUri: `${publicUrl}/v1/integrations/calendar/microsoft/callback` });
+if (cfg.googleClientId && cfg.googleClientSecret) calendarProviders.google = new GoogleCalendar({ clientId: cfg.googleClientId, clientSecret: cfg.googleClientSecret, redirectUri: `${publicUrl}/v1/integrations/calendar/google/callback` });
+console.log(`Calendar auto-join providers: ${Object.keys(calendarProviders).join(", ") || "none (set MS_CLIENT_ID/MS_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET)"}`);
+
 const { app, calls } = await buildApp({
+  ...stores,
+  calendarProviders,
+  webUrl: cfg.webUrl,
   devApiKey: cfg.devApiKey,
   jwtSecret: cfg.jwtSecret,
   secureCookies: cfg.secureCookies,

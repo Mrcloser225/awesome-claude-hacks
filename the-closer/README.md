@@ -87,6 +87,10 @@ Trigger priorities decide when Claude is woken and what gets cancelled:
 
 Both audio channels arrive as one stereo stream so rep and prospect attribution costs nothing and is always right. On the bot path, participants arrive named, so the rep is matched by display name and everyone else is the prospect side. Everything the model says comes out in a fixed format (`TYPE / STAGE / HEADLINE / SAY / WHY`) that the streaming parser renders word by word, so the rep sees the script before the model has finished writing the rationale.
 
+### Auto-join from your calendar
+
+Connect Microsoft 365 or Google Calendar once under Auto-join. The scheduler reads the next twenty minutes of your calendar every five minutes and books a bot for every meeting with a join link and an external attendee, timed to arrive a minute early. The settings page shows what will be joined and why not for everything else. Step by step in `docs/BACKEND-STATUS.md`.
+
 ### Working the call with Claude
 
 `POST /v1/calls/:id/chat` is the same thing as pasting a Fireflies transcript into Claude and asking for help, except the transcript is already there and live. Every turn the server supplies the current transcript, the playbook, the knowledge base and the latest deal picture as context, then streams Claude's reply. It works during the call ("what is the real objection here?", "draft the close") and after it ("score this call", "write the follow-up"). The browser keeps the thread; the server never stores chat.
@@ -104,7 +108,7 @@ cd the-closer
 cp .env.example .env            # add ANTHROPIC_API_KEY; RECALL_API_KEY for the bot; DEEPGRAM_API_KEY only for desktop audio
 pnpm install
 pnpm --filter @closer/core build
-pnpm test                       # 34 tests, no network needed
+pnpm test                       # 46 tests; Postgres store tests run when TEST_DATABASE_URL is set
 pnpm dev:api                    # API on :8787
 pnpm --filter @closer/web dev   # website on :3000
 pnpm dev:desktop                # optional: overlay window

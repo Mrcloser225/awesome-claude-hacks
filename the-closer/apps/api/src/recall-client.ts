@@ -6,7 +6,7 @@
 export class RecallClient {
   constructor(private readonly opts: { apiKey: string; region: string; webhookUrl: string; fetchImpl?: typeof fetch }) {}
 
-  async createBot(input: { meetingUrl: string; callId: string; repName: string; botName?: string }): Promise<{ botId: string }> {
+  async createBot(input: { meetingUrl: string; callId: string; repName: string; botName?: string; joinAt?: number }): Promise<{ botId: string }> {
     const f = this.opts.fetchImpl ?? fetch;
     const res = await f(`https://${this.opts.region}.recall.ai/api/v1/bot/`, {
       method: "POST",
@@ -16,6 +16,8 @@ export class RecallClient {
         // Display name shown in the participant list. Defaults to "<rep> (notes)"; tenants can set anything.
         bot_name: input.botName ?? `${input.repName} (notes)`,
         metadata: { callId: input.callId, repName: input.repName },
+        // Scheduled join: Recall holds the bot and sends it in at this time (ISO 8601).
+        ...(input.joinAt ? { join_at: new Date(input.joinAt).toISOString() } : {}),
         recording_config: {
           transcript: { provider: { deepgram_streaming: { model: "nova-3", language: "en-GB" } } },
           realtime_endpoints: [

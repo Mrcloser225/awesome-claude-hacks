@@ -13,11 +13,11 @@ export interface CallsDeps {
   hub: SessionHub;
   calls: CallStore;
   chat: ChatModel;
-  playbookFor: (orgId: string, id?: string) => Playbook;
-  knowledgeFor: (orgId: string) => KnowledgeDoc[];
+  playbookFor: (orgId: string, id?: string) => Promise<Playbook>;
+  knowledgeFor: (orgId: string) => Promise<KnowledgeDoc[]>;
   summarise?: (rec: CallRecord) => Promise<CallSummary>;
-  createBot?: (input: { meetingUrl: string; callId: string; repName: string; botName?: string }) => Promise<{ botId: string }>;
-  createSession: (ctx: CallContext, send: (m: ServerMessage) => void) => Promise<LiveSession>;
+  createBot?: (input: { meetingUrl: string; callId: string; repName: string; botName?: string; joinAt?: number }) => Promise<{ botId: string }>;
+  createSession: (orgId: string, ctx: CallContext, send: (m: ServerMessage) => void) => Promise<LiveSession>;
   firefliesClient?: (apiKey: string) => FirefliesClient;
 }
 
@@ -38,7 +38,7 @@ export function registerCallRoutes(app: FastifyInstance, deps: CallsDeps): void 
     if (!body.success) return reply.code(400).send({ error: body.error.flatten() });
     const ctx = body.data.context;
     if (deps.hub.get(ctx.callId)) return reply.code(409).send({ error: `call ${ctx.callId} already live` });
-    const session = await deps.createSession(ctx, deps.hub.broadcaster(ctx.callId));
+    const session = await deps.createSession(p(req).orgId, ctx, deps.hub.broadcaster(ctx.callId));
     const bot = await deps.createBot({ meetingUrl: body.data.meetingUrl, callId: ctx.callId, repName: ctx.rep.name, botName: body.data.botName });
     deps.hub.register(session, { botId: bot.botId, orgId: p(req).orgId });
     await deps.calls.upsert({
@@ -108,7 +108,7 @@ export function registerCallRoutes(app: FastifyInstance, deps: CallsDeps): void 
     const live = deps.hub.get(id);
     const transcript = live ? live.store.finals() : rec.transcript;
     const insight = live ? live.insight : rec.insight;
-    const system = buildChatSystemPrompt(deps.playbookFor(p(req).orgId, rec.context.playbookId), rec.context, deps.knowledgeFor(p(req).orgId));
+    const system = buildChatSystemPrompt(await deps.playbookFor(p(req).orgId, rec.context.playbookId), rec.context, await deps.knowledgeFor(p(req).orgId));
     // Earlier turns go through as plain history; only the latest user turn carries the transcript, so the cached prefix is the system prompt + history.
     const messages: ChatTurn[] = [...thread.slice(0, -1), { role: "user", content: buildChatUserTurn(transcript, insight, last.content, Boolean(live)) }];
 

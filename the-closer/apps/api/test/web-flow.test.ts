@@ -4,6 +4,7 @@ import { buildApp } from "../src/app.js";
 import type { ChatModel } from "../src/coach/call-chat.js";
 import { FirefliesClient } from "../src/integrations/fireflies.js";
 import { NoopStt } from "../src/stt/none.js";
+import { MemoryKnowledgeStore } from "../src/stores.js";
 
 /**
  * The website's loop: sign up, import a Fireflies transcript, chat with Claude
@@ -39,10 +40,17 @@ const firefliesFetch: typeof fetch = async (_url, init) => {
 };
 
 let app: Awaited<ReturnType<typeof buildApp>>["app"];
+/** Knowledge is org-scoped; tests seed it for every org that signs up by saving under a wildcard list. */
+async function seededKnowledge(doc: { id: string; title: string; body: string }) {
+  const store = new MemoryKnowledgeStore();
+  const orig = store.list.bind(store);
+  store.list = async (org) => { const own = await orig(org); return own.length ? own : [doc]; };
+  return store;
+}
 beforeAll(async () => {
   ({ app } = await buildApp({
     makeStt: () => new NoopStt(), model: coach, chatModel: chat,
-    knowledge: new Map([["pricing", { id: "pricing", title: "Price list", body: "Bid review from £1,500." }]]),
+    knowledge: await seededKnowledge({ id: "pricing", title: "Price list", body: "Bid review from £1,500." }),
     firefliesClient: (key) => new FirefliesClient(key, firefliesFetch),
     summarise: async (rec) => ({
       outcome: "advanced", oneLine: `Priced against ${rec.transcript.length} lines`, prospectPains: [], objectionsRaised: [{ objection: "price", handled: true, note: "reframed" }],

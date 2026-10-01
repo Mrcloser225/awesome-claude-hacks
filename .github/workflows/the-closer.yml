@@ -8,8 +8,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: the-closer } }
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: closer, POSTGRES_PASSWORD: closer, POSTGRES_DB: closer }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U closer" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      TEST_DATABASE_URL: postgres://closer:closer@localhost:5432/closer
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

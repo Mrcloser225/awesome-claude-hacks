@@ -15,6 +15,12 @@ export interface ApiConfig {
   recallApiKey?: string;
   recallRegion: string;
   recallWebhookSecret?: string;
+  webUrl: string;
+  msClientId?: string;
+  msClientSecret?: string;
+  msTenant?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -36,5 +42,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     recallApiKey: env.RECALL_API_KEY,
     recallRegion: env.RECALL_REGION ?? "us-east-1",
     recallWebhookSecret: env.RECALL_WEBHOOK_SECRET,
+    webUrl: env.WEB_URL ?? "http://localhost:3000",
+    msClientId: env.MS_CLIENT_ID,
+    msClientSecret: env.MS_CLIENT_SECRET,
+    msTenant: env.MS_TENANT,
+    googleClientId: env.GOOGLE_CLIENT_ID,
+    googleClientSecret: env.GOOGLE_CLIENT_SECRET,
   };
 }

@@ -26,8 +26,16 @@ Then point `NEXT_PUBLIC_API_URL` at `https://thecloser-api.fly.dev` and redeploy
 
 Switching models: set `LLM_PROVIDER` (openai, xai, google, qwen, deepseek, mistral, groq, openrouter, ollama, custom) and `LLM_API_KEY`, optionally `LLM_MODEL`. Leave `LLM_PROVIDER` unset for Claude.
 
+## 2b. Calendar auto-join credentials
+
+Microsoft: Entra admin centre, App registrations, New registration. Supported account types: any organisational directory and personal accounts. Redirect URI (Web): `https://<api host>/v1/integrations/calendar/microsoft/callback`. API permissions (delegated): `Calendars.Read`, `User.Read`, `offline_access`. Create a client secret. Set `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT=common`.
+
+Google: Google Cloud console, APIs and Services, enable Google Calendar API, OAuth consent screen (external, add the calendar.readonly and userinfo.email scopes), Credentials, OAuth client ID (Web application) with redirect URI `https://<api host>/v1/integrations/calendar/google/callback`. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+
+Set `WEB_URL=https://the-closer-five.vercel.app` (or your domain) so the browser lands back on the settings page.
+
 ## 3. Before real customers
 
-- Implement `UserStore` and `CallStore` on Postgres (schema in `apps/api/src/db/schema.ts`); the in-memory versions forget everything on restart. `fly postgres create` or Neon.
+- Set `DATABASE_URL`. Migrations run on boot. Without it the API uses in-memory stores and forgets everything on restart.
 - Set a Recall webhook secret (`RECALL_WEBHOOK_SECRET`) so only Recall can post transcripts.
 - Decide the recording disclosure policy and bake it into the bot name default.

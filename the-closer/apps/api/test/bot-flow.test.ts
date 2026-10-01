@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import type { CoachModel, InsightModel, ServerMessage } from "@closer/core";
 import { buildApp } from "../src/app.js";
 import { NoopStt } from "../src/stt/none.js";
+import { MemoryKnowledgeStore } from "../src/stores.js";
 
 /**
  * The meeting-bot loop, end to end and without a network:
@@ -41,6 +42,13 @@ const insight: InsightModel = {
 
 const ended: string[] = [];
 let app: Awaited<ReturnType<typeof buildApp>>["app"];
+/** Knowledge is org-scoped; tests seed it for every org that signs up by saving under a wildcard list. */
+async function seededKnowledge(doc: { id: string; title: string; body: string }) {
+  const store = new MemoryKnowledgeStore();
+  const orig = store.list.bind(store);
+  store.list = async (org) => { const own = await orig(org); return own.length ? own : [doc]; };
+  return store;
+}
 let base = "";
 
 beforeAll(async () => {
@@ -49,7 +57,7 @@ beforeAll(async () => {
     makeStt: () => new NoopStt(),
     model: coach,
     insightModel: insight,
-    knowledge: new Map([["pricing", { id: "pricing", title: "Price list", body: "Bid review from £1,500. Full bid management from £6,000." }]]),
+    knowledge: await seededKnowledge({ id: "pricing", title: "Price list", body: "Bid review from £1,500. Full bid management from £6,000." }),
     createBot: async ({ meetingUrl }) => { expect(meetingUrl).toContain("teams.microsoft.com"); return { botId: "bot-42" }; },
     onCallEnded: (s, rec) => { ended.push(s.ctx.callId); expect(rec?.transcript.length).toBeGreaterThan(0); },
   }));

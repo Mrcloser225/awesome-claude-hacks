@@ -20,6 +20,7 @@ export function AppShell({ children }: { children: (user: User) => React.ReactNo
         <Brand href="/app" />
         <Link href="/app" className={path === "/app" ? "on" : ""}>Calls</Link>
         <Link href="/app/knowledge" className={path.startsWith("/app/knowledge") ? "on" : ""}>Knowledge</Link>
+        <Link href="/app/settings" className={path.startsWith("/app/settings") ? "on" : ""}>Auto-join</Link>
         <span className="spacer" />
         <span className="muted small">{user.name}, {user.company}</span>
         <button className="ghost" onClick={logout}>Sign out</button>
